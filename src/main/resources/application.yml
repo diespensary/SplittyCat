@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: "SplittyCat"
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/splittycat
+    username: splittycat
+    password: splittycat
+
+    jpa:
+      hibernate:
+        ddl-auto: validate
+      open-in-view: false
+
+    flyway:
+      enabled: true
+
+app:
+  security:
+    telegram:
+      bot-token: "8432851006:AAEyQZGMpb266Bx0h1Wc3mvnFjQnhuxIUpE"
+      init-data-max-age-seconds: 86400
+    bot-service:
+      token: "c2b0b7f4d3a14c3bb8b0b1c5e6f0a9c2f7d1b4a8e3c6d9f2a1b0c3d4e5f6a7b8"
+
+
+
