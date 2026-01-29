@@ -18,7 +18,19 @@ public class SecurityConfig {
 
     @Bean
     public ObjectMapper objectMapper() {
-        return new ObjectMapper();
+        return new ObjectMapper()
+                .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    }
+
+    @Bean
+    @Order(0)
+    public SecurityFilterChain telegramWebhookChain(HttpSecurity http) throws Exception {
+        statelessApi(http);
+
+        http.securityMatcher("/telegram/**")
+                .authorizeHttpRequests(a -> a.anyRequest().permitAll());
+
+        return http.build();
     }
 
     @Bean
@@ -56,7 +68,7 @@ public class SecurityConfig {
     public SecurityFilterChain publicChain(HttpSecurity http) throws Exception {
         statelessApi(http);
 
-        http.securityMatcher("/actuator/**", "/error")
+        http.securityMatcher("/", "/index.html", "/actuator/**", "/error")
                 .authorizeHttpRequests(a -> a.anyRequest().permitAll());
 
         return http.build();

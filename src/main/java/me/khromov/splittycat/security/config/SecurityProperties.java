@@ -28,6 +28,9 @@ public class SecurityProperties {
 
         @Min(1)
         private long initDataMaxAgeSeconds;
+
+        private String webhookUrl;
+        private String webhookSecret;
     }
 
     @Getter

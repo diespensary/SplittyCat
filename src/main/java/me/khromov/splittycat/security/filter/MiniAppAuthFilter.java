@@ -37,6 +37,10 @@ public class MiniAppAuthFilter extends OncePerRequestFilter {
 
         String initData = AuthHeader.tokenWithPrefix(request, PREFIX);
         if (initData == null) {
+            initData = request.getHeader("X-TMA-Init-Data");
+        }
+
+        if (initData == null || initData.isBlank()) {
             filterChain.doFilter(request, response);
             return;
         }
