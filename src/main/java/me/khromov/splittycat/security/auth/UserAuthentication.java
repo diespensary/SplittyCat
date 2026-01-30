@@ -1,4 +1,4 @@
-package me.khromov.splittycat.security;
+package me.khromov.splittycat.security.auth;
 
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;

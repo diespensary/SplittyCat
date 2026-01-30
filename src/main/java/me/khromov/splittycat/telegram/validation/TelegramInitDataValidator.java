@@ -1,4 +1,4 @@
-package me.khromov.splittycat.telegram;
+package me.khromov.splittycat.telegram.validation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import me.khromov.splittycat.telegram.dto.TelegramUserPayload;

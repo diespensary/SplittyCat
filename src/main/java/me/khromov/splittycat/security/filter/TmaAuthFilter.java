@@ -1,11 +1,13 @@
-package me.khromov.splittycat.security;
+package me.khromov.splittycat.security.filter;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import me.khromov.splittycat.telegram.TelegramInitDataValidator;
+import me.khromov.splittycat.security.util.AuthHeader;
+import me.khromov.splittycat.security.auth.UserAuthentication;
+import me.khromov.splittycat.telegram.validation.TelegramInitDataValidator;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;

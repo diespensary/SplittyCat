@@ -1,5 +1,6 @@
-package me.khromov.splittycat.security;
+package me.khromov.splittycat.security.config;
 
+import me.khromov.splittycat.security.filter.TmaAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;

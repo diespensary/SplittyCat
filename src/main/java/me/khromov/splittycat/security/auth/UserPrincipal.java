@@ -1,4 +1,4 @@
-package me.khromov.splittycat.security;
+package me.khromov.splittycat.security.auth;
 
 public record UserPrincipal(long tgId) {
 

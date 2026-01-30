@@ -1,7 +1,7 @@
 package me.khromov.splittycat.bot;
 
 import lombok.RequiredArgsConstructor;
-import me.khromov.splittycat.telegram.TelegramProperties;
+import me.khromov.splittycat.telegram.config.TelegramProperties;
 import me.khromov.splittycat.telegram.dto.TelegramUpdatePayload;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;

@@ -1,7 +1,8 @@
-package me.khromov.splittycat.telegram;
+package me.khromov.splittycat.telegram.config;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import me.khromov.splittycat.telegram.validation.TelegramInitDataValidator;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

@@ -1,6 +1,7 @@
-package me.khromov.splittycat.telegram;
+package me.khromov.splittycat.telegram.webhook;
 
 import lombok.RequiredArgsConstructor;
+import me.khromov.splittycat.telegram.config.TelegramProperties;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;

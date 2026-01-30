@@ -3,7 +3,7 @@ package me.khromov.splittycat.bot;
 import lombok.RequiredArgsConstructor;
 import me.khromov.splittycat.bot.dto.BotMessage;
 import me.khromov.splittycat.service.UserService;
-import me.khromov.splittycat.telegram.TelegramBotClient;
+import me.khromov.splittycat.telegram.client.TelegramBotClient;
 import org.springframework.stereotype.Component;
 
 @Component

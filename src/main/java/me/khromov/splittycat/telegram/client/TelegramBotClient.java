@@ -1,5 +1,6 @@
-package me.khromov.splittycat.telegram;
+package me.khromov.splittycat.telegram.client;
 
+import me.khromov.splittycat.telegram.config.TelegramProperties;
 import me.khromov.splittycat.telegram.dto.TelegramSendMessageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;

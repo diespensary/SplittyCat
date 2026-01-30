@@ -1,4 +1,4 @@
-package me.khromov.splittycat.telegram;
+package me.khromov.splittycat.telegram.config;
 
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;

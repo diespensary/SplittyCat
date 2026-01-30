@@ -1,5 +1,6 @@
 package me.khromov.splittycat.security;
 
+import me.khromov.splittycat.security.auth.UserPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
