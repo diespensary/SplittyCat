@@ -44,8 +44,3 @@ dependencies {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
-
-configurations.all {
-    exclude(group = "tools.jackson.core")
-}
-

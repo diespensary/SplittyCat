@@ -10,7 +10,7 @@
 
     const initData = tg?.initData || "";
 
-    fetch("/api/app/init", {
+    fetch("/api/init", {
         headers: {
             Authorization: `TMA ${initData}`,
             "X-TMA-Init-Data": initData,

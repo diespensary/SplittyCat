@@ -1,29 +1,23 @@
 spring:
   application:
-    name: "SplittyCat"
+    name: SplittyCat
 
   datasource:
     url: jdbc:postgresql://localhost:5432/splittycat
     username: splittycat
     password: splittycat
 
-    jpa:
-      hibernate:
-        ddl-auto: validate
-      open-in-view: false
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
-    flyway:
-      enabled: true
+  flyway:
+    enabled: true
 
 app:
-  security:
-    telegram:
-      bot-token: ${TELEGRAM_BOT_TOKEN}
-      init-data-max-age-seconds: 86400
-      webhook-url: ${TELEGRAM_WEBHOOK_URL:}
-      webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
-    bot-service:
-      token: ${BOT_SERVICE_TOKEN:}
-
-
-
+  telegram:
+    bot-token: ${TELEGRAM_BOT_TOKEN}
+    init-data-max-age-seconds: 86400
+    webhook-url: ${TELEGRAM_WEBHOOK_URL:}
+    webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
