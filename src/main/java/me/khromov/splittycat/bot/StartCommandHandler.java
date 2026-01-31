@@ -14,10 +14,21 @@ public class StartCommandHandler {
     private final TelegramBotClient telegramBotClient;
 
     public void handle(BotMessage message) {
+        boolean alreadyRegistered = userService.isRegistered(message.tgId());
         userService.registerOrUpdate(message.tgId(), message.username());
-        telegramBotClient.sendMessage(
-                message.chatId(),
-                "Готово ✅ Ты зарегистрирован. Теперь открой Mini App в меню бота."
-        );
+        if (alreadyRegistered) {
+            telegramBotClient.sendMessage(
+                    message.chatId(),
+                    "Ваше приложение уже настроено и готово к использованию!\n" +
+                            "\nПросто откройте Mini App!"
+            );
+        } else {
+            telegramBotClient.sendMessage(
+                    message.chatId(),
+                    "Поздравляю! Ваше приложение настроено.\n" +
+                            "\nПросто откройте Mini App!"
+            );
+        }
     }
 }
+

@@ -47,6 +47,11 @@ public class UserService {
                 });
     }
 
+    @Transactional(readOnly = true)
+    public boolean isRegistered(long tgId) {
+        return userRepository.findByTgId(tgId).isPresent();
+    }
+
     private static String normalize(String s) {
         return s == null ? "" : s.trim();
     }
