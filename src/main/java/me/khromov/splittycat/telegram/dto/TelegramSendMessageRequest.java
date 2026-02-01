@@ -4,5 +4,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public record TelegramSendMessageRequest(
         @JsonProperty("chat_id") long chatId,
-        String text
+        String text,
+        @JsonProperty("reply_markup") TelegramInlineKeyboardMarkup replyMarkup
 ) {}

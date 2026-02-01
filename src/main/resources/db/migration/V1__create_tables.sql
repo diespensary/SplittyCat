@@ -2,6 +2,7 @@ CREATE TABLE users (
     id  bigserial PRIMARY KEY,
     tg_id bigint NOT NULL,
     username text NOT NULL,
+    pending_action varchar(32) NOT NULL DEFAULT 'NONE',
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT uq_users_tg_id UNIQUE (tg_id)
 );

@@ -1,6 +1,7 @@
 package me.khromov.splittycat.telegram.client;
 
 import me.khromov.splittycat.telegram.config.TelegramProperties;
+import me.khromov.splittycat.telegram.dto.TelegramInlineKeyboardMarkup;
 import me.khromov.splittycat.telegram.dto.TelegramSendMessageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -18,10 +19,14 @@ public class TelegramBotClient {
     }
 
     public void sendMessage(long chatId, String text) {
+        sendMessage(chatId, text, null);
+    }
+
+    public void sendMessage(long chatId, String text, TelegramInlineKeyboardMarkup replyMarkup) {
         client.post()
                 .uri("/sendMessage")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new TelegramSendMessageRequest(chatId, text))
+                .body(new TelegramSendMessageRequest(chatId, text, replyMarkup))
                 .retrieve()
                 .toBodilessEntity();
     }

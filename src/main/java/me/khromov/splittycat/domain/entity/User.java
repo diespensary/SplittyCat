@@ -24,6 +24,10 @@ public class User {
     @Column(name = "username", nullable = false)
     private String username;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pending_action", nullable = false)
+    private PendingAction pendingAction = PendingAction.NONE;
+
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 }
