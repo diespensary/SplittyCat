@@ -32,9 +32,7 @@ public class StartCommandHandler {
             return;
         }
 
-        if (user.getRegistrationStep() == RegistrationStep.NONE) {
-            userService.startRegistration(msg.tgId());
-        }
+        userService.startRegistration(msg.tgId());
 
         var step = userService.getCurrentStep(msg.tgId());
         switch (step) {
@@ -67,10 +65,13 @@ public class StartCommandHandler {
 
     public void onCallback(BotMessage msg) {
         String data = msg.callbackData();
-        if (data == null || data.isBlank()) return;
+        if (data == null || data.isBlank()) {
+            return;
+        }
 
         try {
             var user = userService.requireRegisteredUser(msg.tgId());
+
             if (user.isOnboarded()) {
                 telegramBotClient.sendMessage(
                         msg.chatId(),
@@ -91,15 +92,18 @@ public class StartCommandHandler {
                         "Ок ✅ Оставляем: " + user.getUsername() +
                                 "\n\nТеперь открой Mini App в меню бота."
                 );
-                return;
-            }
-
-            if (CB_CHANGE.equals(data)) {
+            } else if (CB_CHANGE.equals(data)) {
                 userService.proceedToNextStep(msg.tgId());
-                telegramBotClient.sendMessage(msg.chatId(), "Напиши новый username одним сообщением.");
-                return;
+                telegramBotClient.sendMessage(
+                        msg.chatId(),
+                        "Напиши новый username одним сообщением."
+                );
+            } else {
+                telegramBotClient.sendMessage(
+                        msg.chatId(),
+                        "Продолжите регистрацию через /start"
+                );
             }
-
         } finally {
             telegramBotClient.answerCallbackQuery(msg.callbackQueryId());
         }
