@@ -25,8 +25,11 @@ public class User {
     private String username;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "pending_action", nullable = false)
-    private PendingAction pendingAction = PendingAction.NONE;
+    @Column(name = "registration_step", nullable = false)
+    private RegistrationStep registrationStep = RegistrationStep.NONE;
+
+    @Column(name = "onboarded", nullable = false)
+    private boolean onboarded;
 
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime createdAt;

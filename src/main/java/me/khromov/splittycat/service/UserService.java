@@ -1,30 +1,25 @@
 package me.khromov.splittycat.service;
 
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import me.khromov.splittycat.domain.entity.PendingAction;
+import me.khromov.splittycat.domain.entity.RegistrationStep;
 import me.khromov.splittycat.domain.entity.User;
 import me.khromov.splittycat.domain.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class UserService {
-
     private static final String FALLBACK_USERNAME = "Пользователь";
 
-    private final UserRepository userRepository;
+    private static final List<RegistrationStep> REGISTRATION_FLOW =
+            List.of(RegistrationStep.USERNAME_CHOICE, RegistrationStep.WAITING_USERNAME);
 
-    @Transactional(readOnly = true)
-    public User requireRegisteredUser(long tgId) {
-        return userRepository.findByTgId(tgId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.FORBIDDEN,
-                        "Finish registration in the bot (/start) first."
-                ));
-    }
+    private final UserRepository userRepository;
 
     @Transactional
     public User ensureUser(long tgId, String telegramUsername) {
@@ -35,50 +30,83 @@ public class UserService {
                     if (isBlank(u.getUsername())) {
                         u.setUsername(defaultUsername(candidate));
                     }
-                    if (u.getPendingAction() == null) {
-                        u.setPendingAction(PendingAction.NONE);
-                    }
+                    // инициализация дефолтных значений для старых пользователей
+                    if (u.getRegistrationStep() == null) u.setRegistrationStep(RegistrationStep.NONE);
                     return u;
                 })
                 .orElseGet(() -> {
                     var u = new User();
                     u.setTgId(tgId);
                     u.setUsername(defaultUsername(candidate));
-                    u.setPendingAction(PendingAction.NONE);
+                    u.setRegistrationStep(RegistrationStep.NONE);
+                    u.setOnboarded(false);
                     return userRepository.save(u);
                 });
     }
 
     @Transactional
-    public void startWaitingUsername(long tgId) {
-        var u = requireRegisteredUser(tgId);
-        u.setPendingAction(PendingAction.WAITING_USERNAME);
+    public User requireOnboardedUser(long tgId) {
+        var u = userRepository.findByTgId(tgId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Finish registration in the bot (/start) first.")
+        );
+        if (!u.isOnboarded()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Finish registration in the bot (/start) first.");
+        }
+        return u;
     }
 
     @Transactional
-    public void clearPendingAction(long tgId) {
+    public void startRegistration(long tgId) {
         var u = requireRegisteredUser(tgId);
-        u.setPendingAction(PendingAction.NONE);
+        u.setOnboarded(false);
+        u.setRegistrationStep(REGISTRATION_FLOW.get(0));
     }
 
-    @Transactional(readOnly = true)
-    public boolean isWaitingUsername(long tgId) {
+    @Transactional
+    public void completeRegistration(long tgId) {
+        var u = requireRegisteredUser(tgId);
+        u.setOnboarded(true);
+        u.setRegistrationStep(RegistrationStep.NONE);
+    }
+
+    @Transactional
+    public RegistrationStep getCurrentStep(long tgId) {
         return userRepository.findByTgId(tgId)
-                .map(u -> u.getPendingAction() == PendingAction.WAITING_USERNAME)
-                .orElse(false);
+                .map(User::getRegistrationStep)
+                .orElse(RegistrationStep.NONE);
     }
 
     @Transactional
-    public User updateUsername(long tgId, String newUsername) {
+    public void proceedToNextStep(long tgId) {
+        var u = requireRegisteredUser(tgId);
+        int idx = REGISTRATION_FLOW.indexOf(u.getRegistrationStep());
+        if (idx >= 0 && idx + 1 < REGISTRATION_FLOW.size()) {
+            u.setRegistrationStep(REGISTRATION_FLOW.get(idx + 1));
+        } else {
+            u.setRegistrationStep(RegistrationStep.NONE);
+        }
+    }
+
+    @Transactional
+    public User updateUsernameAndComplete(long tgId, String newUsername) {
         String username = normalize(newUsername);
         if (username.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username cannot be blank");
         }
-
         var u = requireRegisteredUser(tgId);
         u.setUsername(username);
-        u.setPendingAction(PendingAction.NONE);
+        u.setOnboarded(true);
+        u.setRegistrationStep(RegistrationStep.NONE);
         return u;
+    }
+
+    @Transactional
+    public User requireRegisteredUser(long tgId) {
+        return userRepository.findByTgId(tgId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Finish registration in the bot (/start) first."));
     }
 
     private static String defaultUsername(String candidate) {

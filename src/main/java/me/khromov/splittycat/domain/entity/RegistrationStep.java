@@ -1,6 +1,7 @@
 package me.khromov.splittycat.domain.entity;
 
-public enum PendingAction {
+public enum RegistrationStep {
     NONE,
+    USERNAME_CHOICE,
     WAITING_USERNAME
 }

@@ -18,7 +18,8 @@ public class AppInitController {
 
     @GetMapping("/init")
     public InitResponse init() {
-        var u = userService.requireRegisteredUser(currentUser.tgId());
+        var u = userService.requireOnboardedUser(currentUser.tgId());
         return new InitResponse(u.getId(), u.getUsername());
     }
+
 }
