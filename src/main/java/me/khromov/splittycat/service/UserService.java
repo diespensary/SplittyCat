@@ -30,7 +30,6 @@ public class UserService {
                     if (isBlank(u.getUsername())) {
                         u.setUsername(defaultUsername(candidate));
                     }
-                    // инициализация дефолтных значений для старых пользователей
                     if (u.getRegistrationStep() == null) u.setRegistrationStep(RegistrationStep.NONE);
                     return u;
                 })
