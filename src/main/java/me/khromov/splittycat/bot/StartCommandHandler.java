@@ -67,30 +67,41 @@ public class StartCommandHandler {
 
     public void onCallback(BotMessage msg) {
         String data = msg.callbackData();
-        if (data == null || data.isBlank()) {
-            return;
-        }
+        if (data == null || data.isBlank()) return;
 
-        var user = userService.requireRegisteredUser(msg.tgId());
-        if (user.isOnboarded()) {
-            return;
-        }
+        try {
+            var user = userService.requireRegisteredUser(msg.tgId());
+            if (user.isOnboarded()) {
+                telegramBotClient.sendMessage(
+                        msg.chatId(),
+                        "Ваше приложение уже настроено и готово к использованию!"
+                );
+                return;
+            }
 
-        var step = user.getRegistrationStep();
-        if (step == RegistrationStep.USERNAME_CHOICE) {
+            if (user.getRegistrationStep() != RegistrationStep.USERNAME_CHOICE) {
+                telegramBotClient.sendMessage(msg.chatId(), "Продолжите регистрацию через /start");
+                return;
+            }
+
             if (CB_KEEP.equals(data)) {
                 userService.completeRegistration(msg.tgId());
                 telegramBotClient.sendMessage(
                         msg.chatId(),
                         "Ок ✅ Оставляем: " + user.getUsername() +
-                                "\n\nОткрой Mini App в меню бота."
+                                "\n\nТеперь открой Mini App в меню бота."
                 );
+                return;
             }
+
             if (CB_CHANGE.equals(data)) {
                 userService.proceedToNextStep(msg.tgId());
-                telegramBotClient.sendMessage(msg.chatId(),
-                        "Напиши новый username одним сообщением.");
+                telegramBotClient.sendMessage(msg.chatId(), "Напиши новый username одним сообщением.");
+                return;
             }
+
+        } finally {
+            telegramBotClient.answerCallbackQuery(msg.callbackQueryId());
         }
     }
 

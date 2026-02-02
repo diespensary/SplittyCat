@@ -7,6 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.util.Map;
+
 @Component
 public class TelegramBotClient {
 
@@ -27,6 +29,18 @@ public class TelegramBotClient {
                 .uri("/sendMessage")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new TelegramSendMessageRequest(chatId, text, replyMarkup))
+                .retrieve()
+                .toBodilessEntity();
+    }
+
+    public void answerCallbackQuery(String callbackQueryId) {
+        if (callbackQueryId == null || callbackQueryId.isBlank()) {
+            return;
+        }
+        client.post()
+                .uri("/answerCallbackQuery")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("callback_query_id", callbackQueryId))
                 .retrieve()
                 .toBodilessEntity();
     }

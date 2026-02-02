@@ -5,5 +5,8 @@ public record BotMessage(
         long chatId,
         String username,
         String text,
-        String callbackData
-) {}
+        String callbackData,
+        String callbackQueryId
+) {
+
+}

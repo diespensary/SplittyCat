@@ -38,13 +38,27 @@ public class TelegramUpdateDispatcher {
 
         TelegramMessagePayload m = update.message();
         if (m != null && m.from() != null && m.chat() != null) {
-            return new BotMessage(m.from().id(), m.chat().id(), m.from().username(), m.text(), null);
+            return new BotMessage(
+                    m.from().id(),
+                    m.chat().id(),
+                    m.from().username(),
+                    m.text(),
+                    null,
+                    null
+            );
         }
 
         TelegramCallbackQueryPayload cq = update.callbackQuery();
         if (cq != null && cq.from() != null && cq.message() != null && cq.message().chat() != null) {
             var cm = cq.message();
-            return new BotMessage(cq.from().id(), cm.chat().id(), cq.from().username(), cm.text(), cq.data());
+            return new BotMessage(
+                    cq.from().id(),
+                    cm.chat().id(),
+                    cq.from().username(),
+                    cm.text(),
+                    cq.data(),
+                    cq.id()
+            );
         }
 
         return null;
