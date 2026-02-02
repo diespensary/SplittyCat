@@ -1,135 +1,54 @@
 package me.khromov.splittycat.bot;
 
 import lombok.RequiredArgsConstructor;
+import me.khromov.splittycat.bot.command.BotCommandHandler;
 import me.khromov.splittycat.bot.dto.BotMessage;
-import me.khromov.splittycat.domain.entity.RegistrationStep;
+import me.khromov.splittycat.bot.registration.RegistrationProcessorRegistry;
+import me.khromov.splittycat.domain.entity.User;
 import me.khromov.splittycat.service.UserService;
 import me.khromov.splittycat.telegram.client.TelegramBotClient;
-import me.khromov.splittycat.telegram.dto.TelegramInlineKeyboardButton;
-import me.khromov.splittycat.telegram.dto.TelegramInlineKeyboardMarkup;
 import org.springframework.stereotype.Component;
-
-import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-public class StartCommandHandler {
-
-    private static final String CB_KEEP = "start:keep";
-    private static final String CB_CHANGE = "start:change";
-
+public class StartCommandHandler implements BotCommandHandler {
     private final UserService userService;
-    private final TelegramBotClient telegramBotClient;
+    private final TelegramBotClient botClient;
+    private final RegistrationProcessorRegistry registrationRegistry;
 
-    public void onStart(BotMessage msg) {
-        var user = userService.ensureUser(msg.tgId(), msg.username());
-
-        if (user.isOnboarded()) {
-            telegramBotClient.sendMessage(
-                    msg.chatId(),
-                    "Ваше приложение уже настроено и готово к использованию!"
-            );
-            return;
-        }
-
-        userService.startRegistration(msg.tgId());
-
-        var step = userService.getCurrentStep(msg.tgId());
-        switch (step) {
-            case USERNAME_CHOICE -> {
-                var markup = new TelegramInlineKeyboardMarkup(List.of(
-                        List.of(
-                                new TelegramInlineKeyboardButton("Оставить", CB_KEEP),
-                                new TelegramInlineKeyboardButton("Изменить", CB_CHANGE)
-                        )
-                ));
-                telegramBotClient.sendMessage(
-                        msg.chatId(),
-                        "Текущий username: " + user.getUsername() +
-                                "\nХотите поменять username или оставляем текущий?",
-                        markup
-                );
-            }
-            case WAITING_USERNAME -> {
-                telegramBotClient.sendMessage(
-                        msg.chatId(),
-                        "Напиши новый username одним сообщением."
-                );
-            }
-            default -> {
-                telegramBotClient.sendMessage(msg.chatId(),
-                        "Продолжите регистрацию в боте.");
-            }
-        }
+    @Override
+    public String command() {
+        return "/start";
     }
 
-    public void onCallback(BotMessage msg) {
-        String data = msg.callbackData();
+    @Override
+    public void handle(BotMessage message) {
+        User user = userService.ensureUser(message.tgId(), message.username());
+        if (user.isOnboarded()) {
+            botClient.sendMessage(message.chatId(), "Ваше приложение уже настроено и готово к использованию!");
+            return;
+        }
+        userService.startRegistration(message.tgId());
+        User updated = userService.requireRegisteredUser(message.tgId());
+        registrationRegistry.getProcessor(updated.getRegistrationStep()).sendPrompt(updated, message);
+    }
+
+    public void onCallback(BotMessage message) {
+        User user = userService.requireRegisteredUser(message.tgId());
+        String data = message.callbackData();
         if (data == null || data.isBlank()) {
             return;
         }
-
-        try {
-            var user = userService.requireRegisteredUser(msg.tgId());
-
-            if (user.isOnboarded()) {
-                telegramBotClient.sendMessage(
-                        msg.chatId(),
-                        "Ваше приложение уже настроено и готово к использованию!"
-                );
-                return;
-            }
-
-            if (user.getRegistrationStep() != RegistrationStep.USERNAME_CHOICE) {
-                telegramBotClient.sendMessage(msg.chatId(), "Продолжите регистрацию через /start");
-                return;
-            }
-
-            if (CB_KEEP.equals(data)) {
-                userService.completeRegistration(msg.tgId());
-                telegramBotClient.sendMessage(
-                        msg.chatId(),
-                        "Ок ✅ Оставляем: " + user.getUsername() +
-                                "\n\nТеперь открой Mini App в меню бота."
-                );
-            } else if (CB_CHANGE.equals(data)) {
-                userService.proceedToNextStep(msg.tgId());
-                telegramBotClient.sendMessage(
-                        msg.chatId(),
-                        "Напиши новый username одним сообщением."
-                );
-            } else {
-                telegramBotClient.sendMessage(
-                        msg.chatId(),
-                        "Продолжите регистрацию через /start"
-                );
-            }
-        } finally {
-            telegramBotClient.answerCallbackQuery(msg.callbackQueryId());
-        }
+        registrationRegistry.getProcessor(user.getRegistrationStep()).handleCallback(user, message, data);
+        botClient.answerCallbackQuery(message.callbackQueryId());
     }
 
-    public void onText(BotMessage msg) {
-        var user = userService.requireRegisteredUser(msg.tgId());
+    public void onText(BotMessage message) {
+        User user = userService.requireRegisteredUser(message.tgId());
         if (user.isOnboarded()) {
             return;
         }
-
-        if (user.getRegistrationStep() == RegistrationStep.WAITING_USERNAME) {
-            String candidate = msg.text() == null ? "" : msg.text().trim();
-            if (candidate.isBlank()) {
-                telegramBotClient.sendMessage(
-                        msg.chatId(),
-                        "Username не может быть пустым. Напиши ещё раз."
-                );
-                return;
-            }
-            var updated = userService.updateUsernameAndComplete(msg.tgId(), candidate);
-            telegramBotClient.sendMessage(
-                    msg.chatId(),
-                    "Готово ✅ Новый username: " + updated.getUsername() +
-                            "\n\nТеперь открой Mini App в меню бота."
-            );
-        }
+        String text = message.text();
+        registrationRegistry.getProcessor(user.getRegistrationStep()).handleText(user, message, text);
     }
 }

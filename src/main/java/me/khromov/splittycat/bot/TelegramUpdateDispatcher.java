@@ -1,6 +1,7 @@
 package me.khromov.splittycat.bot;
 
 import lombok.RequiredArgsConstructor;
+import me.khromov.splittycat.bot.command.BotCommandRegistry;
 import me.khromov.splittycat.bot.dto.BotMessage;
 import me.khromov.splittycat.telegram.dto.TelegramCallbackQueryPayload;
 import me.khromov.splittycat.telegram.dto.TelegramMessagePayload;
@@ -12,10 +13,13 @@ import org.springframework.stereotype.Component;
 public class TelegramUpdateDispatcher {
 
     private final StartCommandHandler startCommandHandler;
+    private final BotCommandRegistry commandRegistry;
 
     public void dispatch(TelegramUpdatePayload update) {
         BotMessage msg = normalize(update);
-        if (msg == null) return;
+        if (msg == null) {
+            return;
+        }
 
         if (msg.callbackData() != null && !msg.callbackData().isBlank()) {
             startCommandHandler.onCallback(msg);
@@ -23,18 +27,27 @@ public class TelegramUpdateDispatcher {
         }
 
         String text = msg.text();
-        if (text == null || text.isBlank()) return;
-
-        if (text.startsWith("/start")) {
-            startCommandHandler.onStart(msg);
+        if (text == null || text.isBlank()) {
             return;
+        }
+
+        if (text.startsWith("/")) {
+            String[] parts = text.split("\\s+", 2);
+            String command = parts[0];
+            var handler = commandRegistry.getHandler(command);
+            if (handler != null) {
+                handler.handle(msg);
+                return;
+            }
         }
 
         startCommandHandler.onText(msg);
     }
 
     private static BotMessage normalize(TelegramUpdatePayload update) {
-        if (update == null) return null;
+        if (update == null) {
+            return null;
+        }
 
         TelegramMessagePayload m = update.message();
         if (m != null && m.from() != null && m.chat() != null) {
