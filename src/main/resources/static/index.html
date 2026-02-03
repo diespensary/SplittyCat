@@ -1,26 +1,14 @@
 <!doctype html>
-<html>
-<meta charset="utf-8" />
-<body>Loading...</body>
-
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script>
-    const tg = window.Telegram?.WebApp;
-    tg?.ready();
-
-    const initData = tg?.initData || "";
-
-    fetch("/api/init", {
-        headers: {
-            Authorization: `TMA ${initData}`,
-            "X-TMA-Init-Data": initData,
-            "ngrok-skip-browser-warning": "1"
-        }
-    })
-        .then(async r => ({ status: r.status, body: await r.text() }))
-        .then(x => {
-            document.body.innerText =
-                `hasTg=${!!tg}\ninitData.length=${initData.length}\nstatus=${x.status}\n${x.body}`;
-        });
-</script>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <title>SplittyCat</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="app">Loading...</div>
+    <!-- Telegram mini app bridge -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
 </html>

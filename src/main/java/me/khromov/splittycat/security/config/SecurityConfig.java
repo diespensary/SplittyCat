@@ -40,8 +40,18 @@ public class SecurityConfig {
     public SecurityFilterChain publicChain(HttpSecurity http) throws Exception {
         statelessApi(http);
 
-        http.securityMatcher("/", "/index.html", "/actuator/**", "/error")
-                .authorizeHttpRequests(a -> a.anyRequest().permitAll());
+        http.securityMatcher(
+                "/",
+                "/index.html",
+                "/*.js",
+                "/*.css",
+                "/*.png",
+                "/*.svg",
+                "/assets/**",
+                "/actuator/**",
+                "/error"
+        ).authorizeHttpRequests(a -> a.anyRequest().permitAll());
+
 
         return http.build();
     }
