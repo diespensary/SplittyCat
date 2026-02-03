@@ -98,12 +98,16 @@ public class EventController {
     public BalanceResponse myBalance(@PathVariable Long eventId) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
         var balance = balanceService.getMyBalance(eventId, user);
+
         List<BalanceEntryDto> youOwe = balance.youOwe().stream()
-                .map(e -> new BalanceEntryDto(e.participantId, e.participantName, e.currencyCode, e.amount))
+                .map(e -> new BalanceEntryDto(e.participantId(), e.participantName(), e.currencyCode(), e.amount()))
                 .toList();
+
         List<BalanceEntryDto> oweYou = balance.oweYou().stream()
-                .map(e -> new BalanceEntryDto(e.participantId, e.participantName, e.currencyCode, e.amount))
+                .map(e -> new BalanceEntryDto(e.participantId(), e.participantName(), e.currencyCode(), e.amount()))
                 .toList();
-        return new BalanceResponse(balance.myParticipantId, youOwe, oweYou);
+
+        return new BalanceResponse(balance.myParticipantId(), youOwe, oweYou);
     }
+
 }
