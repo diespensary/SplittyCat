@@ -35,14 +35,18 @@ async function apiFetch(path, options = {}) {
   // По умолчанию считаем, что ответ JSON (кроме 204).
   const response = await fetch(path, opts);
   if (!response.ok) {
-    // Попробуем прочитать сообщение об ошибке
+    // Attempt to read the error message from the response
     let errText;
     try {
       errText = await response.text();
     } catch (_) {
       errText = response.statusText;
     }
-    throw new Error(errText || 'HTTP ' + response.status);
+    // Attach the HTTP status code to the error so callers can
+    // distinguish 401/403 (unauthorized/unregistered) from other errors.
+    const err = new Error(errText || 'HTTP ' + response.status);
+    err.status = response.status;
+    throw err;
   }
   if (response.status === 204) {
     return null;
@@ -84,19 +88,24 @@ function showError(err) {
 async function initApp() {
   showLoading();
   try {
-    const userStatus = await apiFetch('/api/check-user-status');
-    if (!userStatus.isRegistered) {
-      throw new Error('Пользователь не зарегистрирован');
-    }
+    // /api/init returns 200 only if the user has completed onboarding.
+    await apiFetch('/api/init');
+    // When init succeeds, fetch and render the user's events.
     await loadEvents();
   } catch (e) {
-    showError(e);
-    // Поясняем пользователю, что нужно завершить регистрацию в боте
-    const div = document.createElement('div');
-    div.innerHTML = `
-      <p>Кажется, вы ещё не прошли регистрацию в боте. Пожалуйста, откройте бот SplittyCat в Telegram и завершите процесс регистрации, затем вернитесь в мини‑приложение.</p>
-    `;
-    appDiv.append(div);
+    // If the server returns 401 or 403, the user hasn't finished registration.
+    if (e && typeof e === 'object' && (e.status === 401 || e.status === 403)) {
+      // Inform the user to complete registration in the bot.
+      appDiv.innerHTML = '';
+      const msgDiv = document.createElement('div');
+      msgDiv.innerHTML = `
+        <p>Вы ещё не завершили регистрацию в боте. Пожалуйста, откройте бота SplittyCat в Telegram, завершите процесс регистрации и затем перезапустите мини‑приложение.</p>
+      `;
+      appDiv.append(msgDiv);
+    } else {
+      // For other errors, show a generic error and allow retry.
+      showError(e);
+    }
   }
 }
 
@@ -222,6 +231,398 @@ function renderEventsList(events) {
     }
   };
   appDiv.appendChild(joinForm);
+}
+
+// Отрисовывает выбор участника при присоединении к событию.
+function renderClaimParticipants(inviteCode, joinResponse) {
+  appDiv.innerHTML = '';
+  const h = document.createElement('h2');
+  h.textContent = `Присоединение к событию «${joinResponse.title}»`;
+  appDiv.appendChild(h);
+  const info = document.createElement('p');
+  if (joinResponse.unlinkedParticipants.length === 0) {
+    info.textContent = 'В этом событии нет доступных незанятых участников для привязки.';
+    appDiv.appendChild(info);
+    const backBtn = document.createElement('button');
+    backBtn.className = 'btn secondary';
+    backBtn.textContent = 'Назад';
+    backBtn.onclick = loadEvents;
+    appDiv.appendChild(backBtn);
+    return;
+  }
+  info.textContent = 'Выберите участника, которого хотите привязать к себе:';
+  appDiv.appendChild(info);
+  const list = document.createElement('ul');
+  joinResponse.unlinkedParticipants.forEach(p => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.style.width = '100%';
+    btn.textContent = p.name;
+    btn.onclick = async () => {
+      try {
+        await apiFetch('/api/events/join/claim', { method: 'POST', body: { inviteCode: inviteCode, participantId: p.id } });
+        // После успешной привязки загружаем список событий и открываем конкретное
+        await loadEvents();
+      } catch (err) {
+        showError(err);
+      }
+    };
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+  appDiv.appendChild(list);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn secondary';
+  cancelBtn.textContent = 'Отменить';
+  cancelBtn.onclick = loadEvents;
+  appDiv.appendChild(cancelBtn);
+}
+
+// Загружает детали события (участники, расходы, баланс) и отображает их.
+async function loadEvent(event) {
+  showLoading();
+  try {
+    // Параллельно запрашиваем участников, расходы и баланс
+    const [participants, expenses, balance] = await Promise.all([
+      apiFetch(`/api/events/${event.id}/participants`),
+      apiFetch(`/api/events/${event.id}/expenses`),
+      apiFetch(`/api/events/${event.id}/my-balance`),
+    ]);
+    renderEventDetails(event, participants, expenses, balance);
+  } catch (e) {
+    showError(e);
+    // Если ошибка, возвращаемся на список
+    await loadEvents();
+  }
+}
+
+// Рендерит страницу одного события.
+function renderEventDetails(event, participants, expenses, balance) {
+  appDiv.innerHTML = '';
+  // Кнопка назад
+  const backBtn = document.createElement('button');
+  backBtn.className = 'btn secondary';
+  backBtn.textContent = '← Назад';
+  backBtn.onclick = loadEvents;
+  appDiv.appendChild(backBtn);
+  // Заголовок события
+  const h1 = document.createElement('h1');
+  h1.textContent = event.title;
+  appDiv.appendChild(h1);
+  // Код приглашения и копирование
+  const codeDiv = document.createElement('div');
+  codeDiv.style.marginBottom = '8px';
+  const codeLabel = document.createElement('span');
+  codeLabel.textContent = `Код приглашения: ${event.inviteCode}`;
+  codeDiv.appendChild(codeLabel);
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn secondary';
+  copyBtn.style.marginLeft = '8px';
+  copyBtn.textContent = 'Копировать';
+  copyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(event.inviteCode);
+      notify('Код скопирован в буфер обмена');
+    } catch {
+      notify('Не удалось скопировать код');
+    }
+  };
+  codeDiv.appendChild(copyBtn);
+  appDiv.appendChild(codeDiv);
+
+  // Секция участников
+  const participantsSection = document.createElement('div');
+  participantsSection.className = 'section';
+  const ph = document.createElement('h2');
+  ph.textContent = 'Участники';
+  participantsSection.appendChild(ph);
+  const pList = document.createElement('ul');
+  participants.forEach(p => {
+    const li = document.createElement('li');
+    li.textContent = p.name + (p.linked ? ' (привязан)' : '');
+    // Кнопка удаления для владельца или создателя не реализована: доступность невозможно определить на фронтенде
+    participantsSection.appendChild(li);
+    pList.appendChild(li);
+  });
+  participantsSection.appendChild(pList);
+  // Форма добавления участника
+  const addParticipantForm = document.createElement('form');
+  const addHeader = document.createElement('h3');
+  addHeader.textContent = 'Добавить участника';
+  addParticipantForm.appendChild(addHeader);
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.placeholder = 'Имя участника';
+  nameInput.required = true;
+  addParticipantForm.appendChild(nameInput);
+  const addBtn = document.createElement('button');
+  addBtn.type = 'submit';
+  addBtn.className = 'btn';
+  addBtn.textContent = 'Добавить';
+  addParticipantForm.appendChild(addBtn);
+  addParticipantForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const n = nameInput.value.trim();
+    if (!n) return;
+    addBtn.disabled = true;
+    try {
+      await apiFetch(`/api/events/${event.id}/participants`, { method: 'POST', body: { name: n } });
+      await loadEvent(event);
+    } catch (err) {
+      showError(err);
+    } finally {
+      addBtn.disabled = false;
+    }
+  };
+  participantsSection.appendChild(addParticipantForm);
+  appDiv.appendChild(participantsSection);
+
+  // Секция расходов
+  const expensesSection = document.createElement('div');
+  expensesSection.className = 'section';
+  const eh = document.createElement('h2');
+  eh.textContent = 'Расходы';
+  expensesSection.appendChild(eh);
+  if (expenses.length > 0) {
+    const eList = document.createElement('ul');
+    expenses.forEach(exp => {
+      const li = document.createElement('li');
+      const spanTitle = document.createElement('span');
+      spanTitle.style.fontWeight = 'bold';
+      spanTitle.textContent = exp.title;
+      li.appendChild(spanTitle);
+      const info = document.createElement('span');
+      info.textContent = ` — ${exp.amount} ${exp.currencyCode}, платил ${exp.payerName}`;
+      info.style.marginLeft = '4px';
+      li.appendChild(info);
+      // Кнопка удаления расхода
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn secondary';
+      delBtn.style.marginLeft = '8px';
+      delBtn.textContent = 'Удалить';
+      delBtn.onclick = async () => {
+        if (!confirm('Удалить этот расход?')) return;
+        delBtn.disabled = true;
+        try {
+          await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`, { method: 'DELETE' });
+          await loadEvent(event);
+        } catch (err) {
+          showError(err);
+        } finally {
+          delBtn.disabled = false;
+        }
+      };
+      li.appendChild(delBtn);
+      eList.appendChild(li);
+    });
+    expensesSection.appendChild(eList);
+  } else {
+    const noExp = document.createElement('p');
+    noExp.textContent = 'Пока что нет расходов.';
+    expensesSection.appendChild(noExp);
+  }
+  // Форма добавления расхода
+  const addExpForm = document.createElement('form');
+  const expHeader = document.createElement('h3');
+  expHeader.textContent = 'Добавить расход';
+  addExpForm.appendChild(expHeader);
+  const tInput = document.createElement('input');
+  tInput.type = 'text';
+  tInput.placeholder = 'Название расхода';
+  tInput.required = true;
+  addExpForm.appendChild(tInput);
+  const amtInput = document.createElement('input');
+  amtInput.type = 'number';
+  amtInput.step = '0.01';
+  amtInput.placeholder = 'Сумма';
+  amtInput.required = true;
+  addExpForm.appendChild(amtInput);
+  const currencyInput = document.createElement('input');
+  currencyInput.type = 'text';
+  currencyInput.placeholder = 'Валюта (например, RUB)';
+  currencyInput.value = 'RUB';
+  currencyInput.required = true;
+  addExpForm.appendChild(currencyInput);
+  const dateInput = document.createElement('input');
+  dateInput.type = 'date';
+  // По умолчанию устанавливаем сегодняшнюю дату
+  const today = new Date();
+  dateInput.value = today.toISOString().split('T')[0];
+  dateInput.required = true;
+  addExpForm.appendChild(dateInput);
+  // Выбор плательщика
+  const payerSelect = document.createElement('select');
+  participants.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    payerSelect.appendChild(opt);
+  });
+  addExpForm.appendChild(payerSelect);
+  // Динамический список долей
+  const sharesDiv = document.createElement('div');
+  sharesDiv.className = 'section';
+  const shHeader = document.createElement('h4');
+  shHeader.textContent = 'Доли участников';
+  sharesDiv.appendChild(shHeader);
+  const sharesList = document.createElement('ul');
+  sharesDiv.appendChild(sharesList);
+
+  // Функция для перерасчёта равных долей
+  function recalcShares() {
+    sharesList.innerHTML = '';
+    const amount = parseFloat(amtInput.value);
+    // If there are no participants or amount is NaN, leave shares empty
+    if (participants.length === 0 || isNaN(amount)) {
+      participants.forEach(p => {
+        const li = document.createElement('li');
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = p.name;
+        li.appendChild(nameSpan);
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = '0.01';
+        input.min = '0';
+        input.style.marginLeft = '8px';
+        input.style.width = '80px';
+        input.dataset.participantId = p.id;
+        li.appendChild(input);
+        sharesList.appendChild(li);
+      });
+      return;
+    }
+    // Calculate equal shares with rounding: assign the remainder to the last participant
+    const rawShare = amount / participants.length;
+    // Floor each share to two decimals (avoid exceeding total)
+    const baseShare = Math.floor(rawShare * 100) / 100;
+    // Compute the sum assigned so far to distribute the remainder later
+    let sumAssigned = baseShare * (participants.length - 1);
+    participants.forEach((p, index) => {
+      const li = document.createElement('li');
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = p.name;
+      li.appendChild(nameSpan);
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.step = '0.01';
+      input.min = '0';
+      input.style.marginLeft = '8px';
+      input.style.width = '80px';
+      input.dataset.participantId = p.id;
+      let value;
+      if (index === participants.length - 1) {
+        // Last participant gets the remaining amount to ensure sum equals total
+        value = (amount - sumAssigned).toFixed(2);
+      } else {
+        value = baseShare.toFixed(2);
+      }
+      input.value = value;
+      li.appendChild(input);
+      sharesList.appendChild(li);
+    });
+  }
+  // Вызываем при изменении суммы
+  amtInput.addEventListener('input', recalcShares);
+  // Инициализируем доли
+  recalcShares();
+
+  addExpForm.appendChild(sharesDiv);
+  const addExpBtn = document.createElement('button');
+  addExpBtn.type = 'submit';
+  addExpBtn.className = 'btn';
+  addExpBtn.textContent = 'Добавить расход';
+  addExpForm.appendChild(addExpBtn);
+  addExpForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const title = tInput.value.trim();
+    const amountVal = amtInput.value;
+    const currency = currencyInput.value.trim().toUpperCase();
+    const date = dateInput.value;
+    const payerId = payerSelect.value;
+    if (!title || !amountVal || !currency || !date || !payerId) return;
+    // Собираем доли
+    const shares = [];
+    sharesList.querySelectorAll('input').forEach(inp => {
+      const val = inp.value;
+      if (!val) return;
+      shares.push({ participantId: parseInt(inp.dataset.participantId), amount: parseFloat(val), description: '' });
+    });
+    // Проверяем, что сумма долей совпадает с общей суммой
+    const sumShares = shares.reduce((acc, s) => acc + parseFloat(s.amount), 0);
+    const total = parseFloat(amountVal);
+    if (Math.abs(sumShares - total) > 0.01) {
+      notify('Сумма долей не равна общей сумме. Проверьте ввод.');
+      return;
+    }
+    addExpBtn.disabled = true;
+    try {
+      await apiFetch(`/api/events/${event.id}/expenses`, {
+        method: 'POST',
+        body: {
+          title: title,
+          amount: parseFloat(amountVal),
+          currencyCode: currency,
+          expenseDate: date,
+          payerParticipantId: parseInt(payerId),
+          shares: shares
+        }
+      });
+      // Сбросим форму
+      tInput.value = '';
+      amtInput.value = '';
+      recalcShares();
+      // Перезагрузим данные события
+      await loadEvent(event);
+    } catch (err) {
+      showError(err);
+    } finally {
+      addExpBtn.disabled = false;
+    }
+  };
+  expensesSection.appendChild(addExpForm);
+  appDiv.appendChild(expensesSection);
+
+  // Секция баланса
+  const balSection = document.createElement('div');
+  balSection.className = 'section';
+  const bh = document.createElement('h2');
+  bh.textContent = 'Мой баланс';
+  balSection.appendChild(bh);
+  // Вы должны
+  const youOwe = balance.youOwe || [];
+  if (youOwe.length > 0) {
+    const subtitle = document.createElement('h3');
+    subtitle.textContent = 'Вы должны';
+    balSection.appendChild(subtitle);
+    const ulOwe = document.createElement('ul');
+    youOwe.forEach(e => {
+      const li = document.createElement('li');
+      li.textContent = `${e.participantName}: ${e.amount} ${e.currencyCode}`;
+      ulOwe.appendChild(li);
+    });
+    balSection.appendChild(ulOwe);
+  }
+  // Вам должны
+  const oweYou = balance.oweYou || [];
+  if (oweYou.length > 0) {
+    const subtitle2 = document.createElement('h3');
+    subtitle2.textContent = 'Вам должны';
+    balSection.appendChild(subtitle2);
+    const ulOweYou = document.createElement('ul');
+    oweYou.forEach(e => {
+      const li = document.createElement('li');
+      li.textContent = `${e.participantName}: ${e.amount} ${e.currencyCode}`;
+      ulOweYou.appendChild(li);
+    });
+    balSection.appendChild(ulOweYou);
+  }
+  if (youOwe.length === 0 && oweYou.length === 0) {
+    const p = document.createElement('p');
+    p.textContent = 'Баланс по этому событию нулевой.';
+    balSection.appendChild(p);
+  }
+  appDiv.appendChild(balSection);
 }
 
 // Запускаем приложение после загрузки DOM
