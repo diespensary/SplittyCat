@@ -3,9 +3,9 @@ spring:
     name: SplittyCat
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/splittycat
-    username: splittycat
-    password: splittycat
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USER}
+    password: ${DATABASE_PASSWORD}
 
   jpa:
     hibernate:
