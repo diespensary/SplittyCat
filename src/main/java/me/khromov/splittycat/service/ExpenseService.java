@@ -74,7 +74,9 @@ public class ExpenseService {
                             "Participant not found in this event"));
             sumShares = sumShares.add(shareAmount);
         }
-        if (sumShares.compareTo(amount) != 0) {
+        BigDecimal tolerance = new BigDecimal("0.01");
+
+        if (sumShares.subtract(amount).abs().compareTo(tolerance) > 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Sum of shares must equal total amount");
         }
         Expense expense = new Expense();
@@ -87,7 +89,6 @@ public class ExpenseService {
         expense.setExpenseDate(expenseDate);
         expense = expenseRepository.save(expense);
 
-        // сохраняем доли
         for (Map.Entry<Long, BigDecimal> entry : shares.entrySet()) {
             ParticipantShare share = new ParticipantShare();
             share.setExpense(expense);

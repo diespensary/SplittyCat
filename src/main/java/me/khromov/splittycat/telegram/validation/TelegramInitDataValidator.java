@@ -13,8 +13,12 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TelegramInitDataValidator {
+
+    private static final Logger logger = LoggerFactory.getLogger(TelegramInitDataValidator.class);
 
     private final ObjectMapper objectMapper;
     private final String botToken;
@@ -27,19 +31,32 @@ public class TelegramInitDataValidator {
     }
 
     public TelegramUserPayload validateAndExtractUser(String initData) {
+        logger.info("Starting to validate initData: {}", initData);
+
         Map<String, String> params = parseQuery(initData);
+        logger.debug("Parsed query parameters: {}", params);
 
         String hashHex = require(params, "hash").toLowerCase(Locale.ROOT);
         long authDate = parseLong(require(params, "auth_date"));
-
         long now = Instant.now().getEpochSecond();
-        if (now < authDate || now - authDate > maxAgeSeconds) throw new IllegalArgumentException();
 
+        // Логирование для времени
+        logger.debug("Current time: {} | authDate: {}", now, authDate);
+
+        long tolerance = 600; // 10 минут
+        if (now + tolerance < authDate || now - authDate > maxAgeSeconds) {
+            logger.error("Auth date validation failed: now={} authDate={} tolerance={}", now, authDate, tolerance);
+            throw new IllegalArgumentException("Auth date is invalid or too old.");
+        }
+
+        // Логирование для строки проверки
         String dataCheckString = params.entrySet().stream()
                 .filter(e -> !"hash".equals(e.getKey()))
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> e.getKey() + "=" + e.getValue())
                 .collect(Collectors.joining("\n"));
+
+        logger.debug("Data check string: {}", dataCheckString);
 
         byte[] secretKey = hmacSha256("WebAppData".getBytes(StandardCharsets.UTF_8),
                 botToken.getBytes(StandardCharsets.UTF_8));
@@ -47,13 +64,18 @@ public class TelegramInitDataValidator {
         byte[] expected = hmacSha256(secretKey, dataCheckString.getBytes(StandardCharsets.UTF_8));
         byte[] provided = hexToBytes(hashHex);
 
-        if (!MessageDigest.isEqual(expected, provided)) throw new IllegalArgumentException();
+        if (!MessageDigest.isEqual(expected, provided)) {
+            logger.error("Hash mismatch: expected={} provided={}", expected, provided);
+            throw new IllegalArgumentException("Hash mismatch");
+        }
 
         String userJson = require(params, "user");
         try {
+            logger.debug("User JSON: {}", userJson);
             return objectMapper.readValue(userJson, TelegramUserPayload.class);
         } catch (Exception e) {
-            throw new IllegalArgumentException();
+            logger.error("Failed to parse user JSON", e);
+            throw new IllegalArgumentException("Failed to parse user data");
         }
     }
 

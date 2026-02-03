@@ -23,8 +23,15 @@ async function apiFetch(path, options = {}) {
   const opts = { ...options };
   opts.headers = opts.headers ? { ...opts.headers } : {};
   if (initData) {
-    // Бэкенд проверяет заголовок X-TMA-Init-Data и извлекает
-    // идентификатор Telegram пользователя из подписи.
+    // Telegram mini‑app initData contains a signed payload that the backend
+    // uses to authenticate the current user. Historically we sent this as
+    // the custom header X-TMA-Init-Data, but some reverse proxies (ngrok,
+    // certain CDNs) strip or mangle non‑standard headers. To make
+    // authentication more robust, always include the payload as an
+    // Authorization header with the "TMA " prefix. The backend’s
+    // TmaAuthFilter checks Authorization before falling back to
+    // X-TMA-Init-Data, so sending both covers all cases.
+    opts.headers['Authorization'] = `TMA ${initData}`;
     opts.headers['X-TMA-Init-Data'] = initData;
   }
   // При отправке JSON автоматически сериализуем тело
@@ -291,16 +298,9 @@ async function loadEvent(event) {
     ]);
     renderEventDetails(event, participants, expenses, balance);
   } catch (e) {
-    // Если получаем 401 или 403, значит пользователь не имеет доступа к событию
-    if (e && typeof e === 'object' && (e.status === 401 || e.status === 403)) {
-      // Показываем более дружелюбное сообщение и возвращаемся к списку
-      notify('У вас нет доступа к этому событию или оно не найдено.');
-      await loadEvents();
-    } else {
-      // В остальных случаях просто показываем ошибку и остаёмся на списке
-      showError(e);
-      await loadEvents();
-    }
+    showError(e);
+    // Если ошибка, возвращаемся на список
+    await loadEvents();
   }
 }
 
@@ -377,12 +377,7 @@ function renderEventDetails(event, participants, expenses, balance) {
       await apiFetch(`/api/events/${event.id}/participants`, { method: 'POST', body: { name: n } });
       await loadEvent(event);
     } catch (err) {
-      if (err && typeof err === 'object' && (err.status === 401 || err.status === 403)) {
-        notify('Не удалось добавить участника: у вас нет прав на это событие.');
-        await loadEvents();
-      } else {
-        showError(err);
-      }
+      showError(err);
     } finally {
       addBtn.disabled = false;
     }
@@ -420,12 +415,7 @@ function renderEventDetails(event, participants, expenses, balance) {
           await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`, { method: 'DELETE' });
           await loadEvent(event);
         } catch (err) {
-          if (err && typeof err === 'object' && (err.status === 401 || err.status === 403)) {
-            notify('Не удалось удалить расход: у вас нет прав на это событие.');
-            await loadEvents();
-          } else {
-            showError(err);
-          }
+          showError(err);
         } finally {
           delBtn.disabled = false;
         }
@@ -490,32 +480,8 @@ function renderEventDetails(event, participants, expenses, balance) {
   function recalcShares() {
     sharesList.innerHTML = '';
     const amount = parseFloat(amtInput.value);
-    // If there are no participants or amount is NaN, leave shares empty
-    if (participants.length === 0 || isNaN(amount)) {
-      participants.forEach(p => {
-        const li = document.createElement('li');
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = p.name;
-        li.appendChild(nameSpan);
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.step = '0.01';
-        input.min = '0';
-        input.style.marginLeft = '8px';
-        input.style.width = '80px';
-        input.dataset.participantId = p.id;
-        li.appendChild(input);
-        sharesList.appendChild(li);
-      });
-      return;
-    }
-    // Calculate equal shares with rounding: assign the remainder to the last participant
-    const rawShare = amount / participants.length;
-    // Floor each share to two decimals (avoid exceeding total)
-    const baseShare = Math.floor(rawShare * 100) / 100;
-    // Compute the sum assigned so far to distribute the remainder later
-    let sumAssigned = baseShare * (participants.length - 1);
-    participants.forEach((p, index) => {
+    const perShare = participants.length > 0 && !isNaN(amount) ? amount / participants.length : 0;
+    participants.forEach(p => {
       const li = document.createElement('li');
       const nameSpan = document.createElement('span');
       nameSpan.textContent = p.name;
@@ -524,17 +490,10 @@ function renderEventDetails(event, participants, expenses, balance) {
       input.type = 'number';
       input.step = '0.01';
       input.min = '0';
+      input.value = perShare ? perShare.toFixed(2) : '';
       input.style.marginLeft = '8px';
       input.style.width = '80px';
       input.dataset.participantId = p.id;
-      let value;
-      if (index === participants.length - 1) {
-        // Last participant gets the remaining amount to ensure sum equals total
-        value = (amount - sumAssigned).toFixed(2);
-      } else {
-        value = baseShare.toFixed(2);
-      }
-      input.value = value;
       li.appendChild(input);
       sharesList.appendChild(li);
     });
@@ -592,13 +551,7 @@ function renderEventDetails(event, participants, expenses, balance) {
       // Перезагрузим данные события
       await loadEvent(event);
     } catch (err) {
-      // Если ошибка связана с доступом, сообщаем пользователю и возвращаемся к списку
-      if (err && typeof err === 'object' && (err.status === 401 || err.status === 403)) {
-        notify('Не удалось добавить расход: у вас нет прав на это событие.');
-        await loadEvents();
-      } else {
-        showError(err);
-      }
+      showError(err);
     } finally {
       addExpBtn.disabled = false;
     }
