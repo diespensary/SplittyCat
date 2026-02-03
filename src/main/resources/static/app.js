@@ -291,9 +291,16 @@ async function loadEvent(event) {
     ]);
     renderEventDetails(event, participants, expenses, balance);
   } catch (e) {
-    showError(e);
-    // Если ошибка, возвращаемся на список
-    await loadEvents();
+    // Если получаем 401 или 403, значит пользователь не имеет доступа к событию
+    if (e && typeof e === 'object' && (e.status === 401 || e.status === 403)) {
+      // Показываем более дружелюбное сообщение и возвращаемся к списку
+      notify('У вас нет доступа к этому событию или оно не найдено.');
+      await loadEvents();
+    } else {
+      // В остальных случаях просто показываем ошибку и остаёмся на списке
+      showError(e);
+      await loadEvents();
+    }
   }
 }
 
@@ -370,7 +377,12 @@ function renderEventDetails(event, participants, expenses, balance) {
       await apiFetch(`/api/events/${event.id}/participants`, { method: 'POST', body: { name: n } });
       await loadEvent(event);
     } catch (err) {
-      showError(err);
+      if (err && typeof err === 'object' && (err.status === 401 || err.status === 403)) {
+        notify('Не удалось добавить участника: у вас нет прав на это событие.');
+        await loadEvents();
+      } else {
+        showError(err);
+      }
     } finally {
       addBtn.disabled = false;
     }
@@ -408,7 +420,12 @@ function renderEventDetails(event, participants, expenses, balance) {
           await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`, { method: 'DELETE' });
           await loadEvent(event);
         } catch (err) {
-          showError(err);
+          if (err && typeof err === 'object' && (err.status === 401 || err.status === 403)) {
+            notify('Не удалось удалить расход: у вас нет прав на это событие.');
+            await loadEvents();
+          } else {
+            showError(err);
+          }
         } finally {
           delBtn.disabled = false;
         }
@@ -575,7 +592,13 @@ function renderEventDetails(event, participants, expenses, balance) {
       // Перезагрузим данные события
       await loadEvent(event);
     } catch (err) {
-      showError(err);
+      // Если ошибка связана с доступом, сообщаем пользователю и возвращаемся к списку
+      if (err && typeof err === 'object' && (err.status === 401 || err.status === 403)) {
+        notify('Не удалось добавить расход: у вас нет прав на это событие.');
+        await loadEvents();
+      } else {
+        showError(err);
+      }
     } finally {
       addExpBtn.disabled = false;
     }
