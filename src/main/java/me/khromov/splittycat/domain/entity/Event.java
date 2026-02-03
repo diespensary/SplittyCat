@@ -21,7 +21,7 @@ public class Event {
     @Column(name = "title", nullable = false)
     private String title;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "owner_user_id", nullable = false)
     private User ownerUser;
 

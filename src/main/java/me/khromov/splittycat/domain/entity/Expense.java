@@ -34,11 +34,11 @@ public class Expense {
     @JoinColumn(name = "currency_id", nullable = false)
     private Currency currency;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "owner_user_id", nullable = false)
     private User ownerUser;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "payer_participant_id", nullable = false)
     private Participant payerParticipant;
 
