@@ -23,7 +23,7 @@ public class ParticipantShare {
     @JoinColumn(name = "expense_id", nullable = false)
     private Expense expense;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "participant_id", nullable = false)
     private Participant participant;
 
