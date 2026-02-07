@@ -127,6 +127,18 @@ async function loadEvents() {
   }
 }
 
+// Загружает событие по ID через отдельную ручку деталей.
+async function loadEventById(eventId) {
+  showLoading();
+  try {
+    const event = await apiFetch(`/api/events/${eventId}`);
+    await loadEvent(event);
+  } catch (e) {
+    showError(e);
+    await loadEvents();
+  }
+}
+
 // Рендер списка событий. Позволяет создавать новые события и
 // присоединяться к существующим по invite‑коду.
 function renderEventsList(events) {
@@ -144,8 +156,8 @@ function renderEventsList(events) {
     title.style.cursor = 'pointer';
     title.style.fontWeight = 'bold';
     title.onclick = () => {
-      // При клике загружаем детали события
-      loadEvent(ev);
+      // При клике загружаем детали события через отдельный endpoint.
+      loadEventById(ev.id);
     };
     li.appendChild(title);
     // Показываем код приглашения более бледным шрифтом
@@ -189,9 +201,9 @@ function renderEventsList(events) {
     if (!name) return;
     createBtn.disabled = true;
     try {
-      await apiFetch('/api/events', { method: 'POST', body: { title: name } });
+      const createdEvent = await apiFetch('/api/events', { method: 'POST', body: { title: name } });
       titleInput.value = '';
-      await loadEvents();
+      await loadEventById(createdEvent.id);
     } catch (err) {
       showError(err);
     } finally {
@@ -226,7 +238,7 @@ function renderEventsList(events) {
       const res = await apiFetch('/api/events/join', { method: 'POST', body: { inviteCode: code } });
       if (res.alreadyJoined) {
         // Событие уже привязано, загружаем его
-        await loadEvent({ id: res.eventId, title: res.title, inviteCode: res.inviteCode });
+        await loadEventById(res.eventId);
       } else {
         // Нужно выбрать участника и привязать
         renderClaimParticipants(code, res);
@@ -268,9 +280,8 @@ function renderClaimParticipants(inviteCode, joinResponse) {
     btn.textContent = p.name;
     btn.onclick = async () => {
       try {
-        await apiFetch('/api/events/join/claim', { method: 'POST', body: { inviteCode: inviteCode, participantId: p.id } });
-        // После успешной привязки загружаем список событий и открываем конкретное
-        await loadEvents();
+        const claimedEvent = await apiFetch('/api/events/join/claim', { method: 'POST', body: { inviteCode: inviteCode, participantId: p.id } });
+        await loadEventById(claimedEvent.id);
       } catch (err) {
         showError(err);
       }
@@ -290,13 +301,14 @@ function renderClaimParticipants(inviteCode, joinResponse) {
 async function loadEvent(event) {
   showLoading();
   try {
-    // Параллельно запрашиваем участников, расходы и баланс
-    const [participants, expenses, balance] = await Promise.all([
+    // Параллельно запрашиваем детали события, участников, расходы и баланс
+    const [eventDetails, participants, expenses, balance] = await Promise.all([
+      apiFetch(`/api/events/${event.id}`),
       apiFetch(`/api/events/${event.id}/participants`),
       apiFetch(`/api/events/${event.id}/expenses`),
       apiFetch(`/api/events/${event.id}/my-balance`),
     ]);
-    renderEventDetails(event, participants, expenses, balance);
+    renderEventDetails(eventDetails, participants, expenses, balance);
   } catch (e) {
     showError(e);
     // Если ошибка, возвращаемся на список
@@ -317,6 +329,24 @@ function renderEventDetails(event, participants, expenses, balance) {
   const h1 = document.createElement('h1');
   h1.textContent = event.title;
   appDiv.appendChild(h1);
+
+  const deleteEventBtn = document.createElement('button');
+  deleteEventBtn.className = 'btn secondary danger';
+  deleteEventBtn.textContent = 'Удалить событие';
+  deleteEventBtn.onclick = async () => {
+    if (!confirm('Удалить событие целиком? Это действие нельзя отменить.')) return;
+    deleteEventBtn.disabled = true;
+    try {
+      await apiFetch(`/api/events/${event.id}`, { method: 'DELETE' });
+      notify('Событие удалено.');
+      await loadEvents();
+    } catch (err) {
+      showError(err);
+    } finally {
+      deleteEventBtn.disabled = false;
+    }
+  };
+  appDiv.appendChild(deleteEventBtn);
   // Код приглашения и копирование
   const codeDiv = document.createElement('div');
   codeDiv.style.marginBottom = '8px';
@@ -347,9 +377,28 @@ function renderEventDetails(event, participants, expenses, balance) {
   const pList = document.createElement('ul');
   participants.forEach(p => {
     const li = document.createElement('li');
-    li.textContent = p.name + (p.linked ? ' (привязан)' : '');
-    // Кнопка удаления для владельца или создателя не реализована: доступность невозможно определить на фронтенде
-    participantsSection.appendChild(li);
+    const name = document.createElement('span');
+    name.textContent = p.name + (p.linked ? ' (привязан)' : '');
+    li.appendChild(name);
+
+    const deleteParticipantBtn = document.createElement('button');
+    deleteParticipantBtn.className = 'btn secondary';
+    deleteParticipantBtn.style.marginLeft = '8px';
+    deleteParticipantBtn.textContent = 'Удалить';
+    deleteParticipantBtn.onclick = async () => {
+      if (!confirm(`Удалить участника «${p.name}»?`)) return;
+      deleteParticipantBtn.disabled = true;
+      try {
+        await apiFetch(`/api/events/${event.id}/participants/${p.id}`, { method: 'DELETE' });
+        await loadEvent(event);
+      } catch (err) {
+        showError(err);
+      } finally {
+        deleteParticipantBtn.disabled = false;
+      }
+    };
+    li.appendChild(deleteParticipantBtn);
+
     pList.appendChild(li);
   });
   participantsSection.appendChild(pList);
@@ -403,6 +452,24 @@ function renderEventDetails(event, participants, expenses, balance) {
       info.textContent = ` — ${exp.amount} ${exp.currencyCode}, платил ${exp.payerName}`;
       info.style.marginLeft = '4px';
       li.appendChild(info);
+
+      const detailsBtn = document.createElement('button');
+      detailsBtn.className = 'btn secondary';
+      detailsBtn.style.marginLeft = '8px';
+      detailsBtn.textContent = 'Детали';
+      detailsBtn.onclick = async () => {
+        detailsBtn.disabled = true;
+        try {
+          const expenseDetails = await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`);
+          renderExpenseDetails(li, expenseDetails);
+        } catch (err) {
+          showError(err);
+        } finally {
+          detailsBtn.disabled = false;
+        }
+      };
+      li.appendChild(detailsBtn);
+
       // Кнопка удаления расхода
       const delBtn = document.createElement('button');
       delBtn.className = 'btn secondary';
@@ -599,6 +666,35 @@ function renderEventDetails(event, participants, expenses, balance) {
     balSection.appendChild(p);
   }
   appDiv.appendChild(balSection);
+}
+
+function renderExpenseDetails(parentLi, expenseDetails) {
+  const existing = parentLi.querySelector('.expense-details');
+  if (existing) {
+    existing.remove();
+    return;
+  }
+
+  const detailsDiv = document.createElement('div');
+  detailsDiv.className = 'expense-details';
+
+  const meta = document.createElement('p');
+  meta.textContent = `Дата: ${expenseDetails.expenseDate}, плательщик: ${expenseDetails.payer.name}`;
+  detailsDiv.appendChild(meta);
+
+  const sharesHeader = document.createElement('strong');
+  sharesHeader.textContent = 'Разбивка долей:';
+  detailsDiv.appendChild(sharesHeader);
+
+  const sharesList = document.createElement('ul');
+  expenseDetails.shares.forEach((share) => {
+    const shareLi = document.createElement('li');
+    const note = share.description ? ` (${share.description})` : '';
+    shareLi.textContent = `ID участника ${share.participantId}: ${share.amount}${note}`;
+    sharesList.appendChild(shareLi);
+  });
+  detailsDiv.appendChild(sharesList);
+  parentLi.appendChild(detailsDiv);
 }
 
 // Запускаем приложение после загрузки DOM

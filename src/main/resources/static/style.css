@@ -43,6 +43,11 @@ h1 {
   color: #333;
 }
 
+.btn.secondary.danger {
+  background: #ffd9d9;
+  color: #7a1010;
+}
+
 form {
   margin: 12px 0;
 }
@@ -82,4 +87,14 @@ li {
 .error {
   color: #d00;
   margin-top: 8px;
+}
+
+.expense-details {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #ccc;
+}
+
+.expense-details p {
+  margin: 0 0 6px 0;
 }
