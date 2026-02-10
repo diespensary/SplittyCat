@@ -400,6 +400,7 @@ async function loadEvent(event) {
 
 // Рендерит страницу одного события.
 function renderEventDetails(event, participants, expenses, balance) {
+  const participantNameById = new Map(participants.map((participant) => [participant.id, participant.name]));
   appDiv.innerHTML = '';
   // Кнопка назад
   const backBtn = document.createElement('button');
@@ -551,7 +552,7 @@ function renderEventDetails(event, participants, expenses, balance) {
         detailsBtn.disabled = true;
         try {
           const expenseDetails = await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`);
-          renderExpenseDetails(li, expenseDetails);
+          renderExpenseDetails(li, expenseDetails, participantNameById);
         } catch (err) {
           showError(err);
         } finally {
@@ -775,7 +776,7 @@ function renderEventDetails(event, participants, expenses, balance) {
   appDiv.appendChild(balSection);
 }
 
-function renderExpenseDetails(parentLi, expenseDetails) {
+function renderExpenseDetails(parentLi, expenseDetails, participantNameById = new Map()) {
   const existing = parentLi.querySelector('.expense-details');
   if (existing) {
     existing.remove();
@@ -797,7 +798,8 @@ function renderExpenseDetails(parentLi, expenseDetails) {
   expenseDetails.shares.forEach((share) => {
     const shareLi = document.createElement('li');
     const note = share.description ? ` (${share.description})` : '';
-    shareLi.textContent = `ID участника ${share.participantId}: ${share.amount}${note}`;
+    const participantName = participantNameById.get(share.participantId) || `ID участника ${share.participantId}`;
+    shareLi.textContent = `${participantName}: ${share.amount}${note}`;
     sharesList.appendChild(shareLi);
   });
   detailsDiv.appendChild(sharesList);
