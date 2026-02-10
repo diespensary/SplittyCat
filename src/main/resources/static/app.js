@@ -18,6 +18,38 @@ const initData = webApp && webApp.initData ? webApp.initData : '';
 // Корневой контейнер, в который мы рендерим содержимое приложения.
 const appDiv = document.getElementById('app');
 
+// Попытка получить invite-код из deep-link параметров запуска mini app.
+function getInviteCodeFromLaunchContext() {
+  const params = new URLSearchParams(window.location.search);
+  const rawParam =
+      params.get('invite') ||
+      params.get('startapp') ||
+      params.get('tgWebAppStartParam') ||
+      (webApp && webApp.initDataUnsafe ? webApp.initDataUnsafe.start_param : null);
+
+  if (!rawParam) {
+    return null;
+  }
+
+  return String(rawParam).trim() || null;
+}
+
+function clearInviteParamsFromUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('invite');
+  url.searchParams.delete('startapp');
+  url.searchParams.delete('tgWebAppStartParam');
+  window.history.replaceState({}, '', url);
+}
+
+function buildInviteLink(inviteCode) {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('invite', inviteCode);
+  return url.toString();
+}
+
 // Общая функция для выполнения запросов к API.
 async function apiFetch(path, options = {}) {
   const opts = { ...options };
@@ -97,6 +129,23 @@ async function initApp() {
   try {
     // /api/init returns 200 only if the user has completed onboarding.
     await apiFetch('/api/init');
+
+    const inviteCode = getInviteCodeFromLaunchContext();
+    if (inviteCode) {
+      try {
+        const res = await apiFetch('/api/events/join', { method: 'POST', body: { inviteCode } });
+        clearInviteParamsFromUrl();
+        if (res.alreadyJoined) {
+          await loadEventById(res.eventId);
+        } else {
+          renderClaimParticipants(inviteCode, res);
+        }
+        return;
+      } catch (joinError) {
+        showError(joinError);
+      }
+    }
+
     // When init succeeds, fetch and render the user's events.
     await loadEvents();
   } catch (e) {
@@ -139,8 +188,7 @@ async function loadEventById(eventId) {
   }
 }
 
-// Рендер списка событий. Позволяет создавать новые события и
-// присоединяться к существующим по invite‑коду.
+// Рендер списка событий. Позволяет создавать новые события.
 function renderEventsList(events) {
   appDiv.innerHTML = '';
   const header = document.createElement('h1');
@@ -160,12 +208,6 @@ function renderEventsList(events) {
       loadEventById(ev.id);
     };
     li.appendChild(title);
-    // Показываем код приглашения более бледным шрифтом
-    const code = document.createElement('span');
-    code.textContent = ` (код: ${ev.inviteCode})`;
-    code.style.marginLeft = '8px';
-    code.style.color = '#666';
-    li.appendChild(code);
     list.appendChild(li);
   });
   if (events.length > 0) {
@@ -211,45 +253,6 @@ function renderEventsList(events) {
     }
   };
   appDiv.appendChild(createForm);
-
-  // Форма присоединения по invite‑коду
-  const joinForm = document.createElement('form');
-  joinForm.id = 'join-event-form';
-  const joinHeader = document.createElement('h2');
-  joinHeader.textContent = 'Присоединиться к событию';
-  joinForm.appendChild(joinHeader);
-  const codeInput = document.createElement('input');
-  codeInput.name = 'code';
-  codeInput.type = 'text';
-  codeInput.placeholder = 'Код приглашения';
-  codeInput.required = true;
-  joinForm.appendChild(codeInput);
-  const joinBtn = document.createElement('button');
-  joinBtn.type = 'submit';
-  joinBtn.className = 'btn';
-  joinBtn.textContent = 'Присоединиться';
-  joinForm.appendChild(joinBtn);
-  joinForm.onsubmit = async (e) => {
-    e.preventDefault();
-    const code = codeInput.value.trim();
-    if (!code) return;
-    joinBtn.disabled = true;
-    try {
-      const res = await apiFetch('/api/events/join', { method: 'POST', body: { inviteCode: code } });
-      if (res.alreadyJoined) {
-        // Событие уже привязано, загружаем его
-        await loadEventById(res.eventId);
-      } else {
-        // Нужно выбрать участника и привязать
-        renderClaimParticipants(code, res);
-      }
-    } catch (err) {
-      showError(err);
-    } finally {
-      joinBtn.disabled = false;
-    }
-  };
-  appDiv.appendChild(joinForm);
 }
 
 // Отрисовывает выбор участника при присоединении к событию.
@@ -347,22 +350,30 @@ function renderEventDetails(event, participants, expenses, balance) {
     }
   };
   appDiv.appendChild(deleteEventBtn);
-  // Код приглашения и копирование
+  // Ссылка-приглашение и копирование
   const codeDiv = document.createElement('div');
   codeDiv.style.marginBottom = '8px';
+  const inviteLink = buildInviteLink(event.inviteCode);
   const codeLabel = document.createElement('span');
-  codeLabel.textContent = `Код приглашения: ${event.inviteCode}`;
+  codeLabel.textContent = 'Ссылка-приглашение:';
   codeDiv.appendChild(codeLabel);
+  const linkEl = document.createElement('a');
+  linkEl.href = inviteLink;
+  linkEl.textContent = inviteLink;
+  linkEl.target = '_blank';
+  linkEl.rel = 'noopener noreferrer';
+  linkEl.style.marginLeft = '6px';
+  codeDiv.appendChild(linkEl);
   const copyBtn = document.createElement('button');
   copyBtn.className = 'btn secondary';
   copyBtn.style.marginLeft = '8px';
-  copyBtn.textContent = 'Копировать';
+  copyBtn.textContent = 'Копировать ссылку';
   copyBtn.onclick = async () => {
     try {
-      await navigator.clipboard.writeText(event.inviteCode);
-      notify('Код скопирован в буфер обмена');
+      await navigator.clipboard.writeText(inviteLink);
+      notify('Ссылка скопирована в буфер обмена');
     } catch {
-      notify('Не удалось скопировать код');
+      notify('Не удалось скопировать ссылку');
     }
   };
   codeDiv.appendChild(copyBtn);
