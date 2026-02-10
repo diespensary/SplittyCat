@@ -21,5 +21,6 @@ public class TelegramProperties {
 
     private String webhookUrl;
     private String webhookSecret;
+    private String botUsername;
 }
 

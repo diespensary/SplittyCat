@@ -14,6 +14,7 @@
 const webApp = window.Telegram ? window.Telegram.WebApp : null;
 // Строка initData используется для аутентификации на бэкенде.
 const initData = webApp && webApp.initData ? webApp.initData : '';
+let telegramBotUsername = null;
 
 // Корневой контейнер, в который мы рендерим содержимое приложения.
 const appDiv = document.getElementById('app');
@@ -43,6 +44,10 @@ function clearInviteParamsFromUrl() {
 }
 
 function buildInviteLink(inviteCode) {
+  if (telegramBotUsername) {
+    return `https://t.me/${telegramBotUsername}?startapp=${encodeURIComponent(inviteCode)}`;
+  }
+
   const url = new URL(window.location.href);
   url.search = '';
   url.hash = '';
@@ -128,7 +133,10 @@ async function initApp() {
   showLoading();
   try {
     // /api/init returns 200 only if the user has completed onboarding.
-    await apiFetch('/api/init');
+    const initDataResponse = await apiFetch('/api/init');
+    telegramBotUsername = initDataResponse && initDataResponse.botUsername
+        ? String(initDataResponse.botUsername).trim().replace(/^@/, '')
+        : null;
 
     const inviteCode = getInviteCodeFromLaunchContext();
     if (inviteCode) {
