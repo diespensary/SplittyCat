@@ -1,5 +1,5 @@
 package me.khromov.splittycat.api.dto;
 
-public record InitResponse(Long userId, String username) {
+public record InitResponse(Long userId, String username, String botUsername) {
 
 }

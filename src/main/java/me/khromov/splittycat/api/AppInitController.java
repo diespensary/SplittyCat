@@ -3,6 +3,7 @@ package me.khromov.splittycat.api;
 import lombok.RequiredArgsConstructor;
 import me.khromov.splittycat.api.dto.InitResponse;
 import me.khromov.splittycat.security.CurrentUser;
+import me.khromov.splittycat.telegram.config.TelegramProperties;
 import me.khromov.splittycat.service.UserService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,11 +16,12 @@ public class AppInitController {
 
     private final CurrentUser currentUser;
     private final UserService userService;
+    private final TelegramProperties telegramProperties;
 
     @GetMapping("/init")
     public InitResponse init() {
         var u = userService.requireOnboardedUser(currentUser.tgId());
-        return new InitResponse(u.getId(), u.getUsername());
+        return new InitResponse(u.getId(), u.getUsername(), telegramProperties.getBotUsername());
     }
 
 }
