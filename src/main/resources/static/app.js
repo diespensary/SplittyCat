@@ -164,14 +164,11 @@ function showLoading(text = 'Загрузка...') {
   appDiv.innerHTML = `<p>${text}</p>`;
 }
 
-// Отображает сообщение об ошибке. Помимо уведомления, вставляет текст в DOM.
+// Отображает сообщение об ошибке только через системное уведомление Telegram.
+// Не сохраняем ошибку в DOM, чтобы она не "прилипала" к текущему экрану.
 function showError(err) {
   const msg = err instanceof Error ? err.message : String(err);
   notify(msg);
-  const p = document.createElement('p');
-  p.className = 'error';
-  p.textContent = msg;
-  appDiv.prepend(p);
 }
 
 // Запускаем инициализацию приложения: проверяем, что пользователь зарегистрирован,
@@ -642,13 +639,29 @@ function renderEventDetails(event, participants, expenses, balance) {
   const sharesList = document.createElement('ul');
   sharesDiv.appendChild(sharesList);
 
+  const selectedParticipants = new Set(participants.map((p) => p.id));
+
   // Функция для перерасчёта равных долей
   function recalcShares() {
     sharesList.innerHTML = '';
     const amount = parseFloat(amtInput.value);
-    const perShare = participants.length > 0 && !isNaN(amount) ? amount / participants.length : 0;
+    const activeParticipants = participants.filter((p) => selectedParticipants.has(p.id));
+    const perShare = activeParticipants.length > 0 && !isNaN(amount) ? amount / activeParticipants.length : 0;
     participants.forEach(p => {
       const li = document.createElement('li');
+      const includeCheckbox = document.createElement('input');
+      includeCheckbox.type = 'checkbox';
+      includeCheckbox.checked = selectedParticipants.has(p.id);
+      includeCheckbox.style.marginRight = '8px';
+      includeCheckbox.onchange = () => {
+        if (includeCheckbox.checked) {
+          selectedParticipants.add(p.id);
+        } else {
+          selectedParticipants.delete(p.id);
+        }
+        recalcShares();
+      };
+      li.appendChild(includeCheckbox);
       const nameSpan = document.createElement('span');
       nameSpan.textContent = p.name;
       li.appendChild(nameSpan);
@@ -656,11 +669,12 @@ function renderEventDetails(event, participants, expenses, balance) {
       amountInput.type = 'number';
       amountInput.step = '0.01';
       amountInput.min = '0';
-      amountInput.value = perShare ? perShare.toFixed(2) : '';
+      amountInput.value = includeCheckbox.checked && perShare ? perShare.toFixed(2) : '';
       amountInput.style.marginLeft = '8px';
       amountInput.style.width = '80px';
       amountInput.dataset.participantId = p.id;
       amountInput.dataset.fieldType = 'amount';
+      amountInput.disabled = !includeCheckbox.checked;
       li.appendChild(amountInput);
 
       const descriptionInput = document.createElement('input');
@@ -670,6 +684,7 @@ function renderEventDetails(event, participants, expenses, balance) {
       descriptionInput.style.width = '220px';
       descriptionInput.dataset.participantId = p.id;
       descriptionInput.dataset.fieldType = 'description';
+      descriptionInput.disabled = !includeCheckbox.checked;
       li.appendChild(descriptionInput);
       sharesList.appendChild(li);
     });
@@ -698,6 +713,7 @@ function renderEventDetails(event, participants, expenses, balance) {
     sharesList.querySelectorAll('li').forEach(shareLi => {
       const amountInput = shareLi.querySelector('input[data-field-type="amount"]');
       const descriptionInput = shareLi.querySelector('input[data-field-type="description"]');
+      if (!amountInput || amountInput.disabled) return;
       const amountValue = amountInput ? amountInput.value : '';
       if (!amountValue) return;
       const descriptionValue = descriptionInput ? descriptionInput.value.trim() : '';
@@ -707,6 +723,10 @@ function renderEventDetails(event, participants, expenses, balance) {
         description: descriptionValue
       });
     });
+    if (shares.length === 0) {
+      notify('Выберите хотя бы одного участника для распределения траты.');
+      return;
+    }
     // Проверяем, что сумма долей совпадает с общей суммой
     const sumShares = shares.reduce((acc, s) => acc + parseFloat(s.amount), 0);
     const total = parseFloat(amountVal);
