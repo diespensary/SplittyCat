@@ -12,7 +12,7 @@ public class CurrentUser {
     public long tgId() {
         var auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !(auth.getPrincipal() instanceof UserPrincipal p)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Пользователь не зарегистрировался");
         }
         return p.tgId();
     }

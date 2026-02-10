@@ -7,6 +7,7 @@ import me.khromov.splittycat.domain.entity.Participant;
 import me.khromov.splittycat.domain.entity.User;
 import me.khromov.splittycat.domain.repository.EventRepository;
 import me.khromov.splittycat.domain.repository.ParticipantRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -29,7 +30,7 @@ public class EventService {
     @Transactional
     public Event createEvent(String title, User ownerUser) {
         if (title == null || title.trim().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Title cannot be blank");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Название не может быть пустым");
         }
 
         String inviteCode = null;
@@ -42,7 +43,7 @@ public class EventService {
         }
         if (inviteCode == null) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Unable to generate unique invite code");
+                    "Невозможно сгенерировать уникальный код приглашения");
         }
         Event event = new Event();
         event.setTitle(title.trim());
@@ -78,11 +79,11 @@ public class EventService {
     @Transactional
     public Event requireEventAccessible(Long eventId, User user) {
         Event event = eventRepository.findById(eventId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Событие не найдено"));
         boolean owner = event.getOwnerUser().getId().equals(user.getId());
         boolean participant = participantRepository.findByEventAndLinkedUser(event, user).isPresent();
         if (!owner && !participant) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of this event");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Не участник этого события");
         }
         return event;
     }
@@ -90,11 +91,17 @@ public class EventService {
     @Transactional
     public void deleteEvent(Long eventId, User user) {
         Event event = eventRepository.findById(eventId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Событие не найдено"));
         if (!event.getOwnerUser().getId().equals(user.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the owner can delete the event");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Удалить событие может только владелец");
         }
-        eventRepository.delete(event);
+        try {
+            eventRepository.delete(event);
+            eventRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Нельзя удалить событие, пока в нём есть траты");
+        }
     }
 
     private static String normalizeName(String s) {

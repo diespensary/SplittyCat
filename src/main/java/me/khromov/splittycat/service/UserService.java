@@ -47,11 +47,11 @@ public class UserService {
     public User requireOnboardedUser(long tgId) {
         var u = userRepository.findByTgId(tgId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "Finish registration in the bot (/start) first.")
+                        "Сначала завершите регистрацию в боте (/start)")
         );
         if (!u.isOnboarded()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Finish registration in the bot (/start) first.");
+                    "Сначала завершите регистрацию в боте (/start)");
         }
         return u;
     }
@@ -92,7 +92,7 @@ public class UserService {
     public User updateUsernameAndComplete(long tgId, String newUsername) {
         String username = normalize(newUsername);
         if (username.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username cannot be blank");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Имя пользователя не может быть пустым");
         }
         var u = requireRegisteredUser(tgId);
         u.setUsername(username);
@@ -105,7 +105,7 @@ public class UserService {
     public User requireRegisteredUser(long tgId) {
         return userRepository.findByTgId(tgId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "Finish registration in the bot (/start) first."));
+                        "Сначала завершите регистрацию в боте (/start)"));
     }
 
     private static String defaultUsername(String candidate) {

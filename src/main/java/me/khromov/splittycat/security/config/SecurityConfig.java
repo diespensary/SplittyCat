@@ -1,5 +1,7 @@
 package me.khromov.splittycat.security.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import me.khromov.splittycat.api.dto.ApiErrorResponse;
 import me.khromov.splittycat.security.filter.TmaAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -9,8 +11,34 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import java.io.IOException;
+import java.time.Instant;
+
 @Configuration
 public class SecurityConfig {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    private static void writeApiError(
+            jakarta.servlet.http.HttpServletResponse response,
+            int statusCode,
+            String message,
+            String path
+    ) throws IOException {
+        response.setStatus(statusCode);
+        response.setContentType("application/json;charset=UTF-8");
+
+        org.springframework.http.HttpStatus status = org.springframework.http.HttpStatus.valueOf(statusCode);
+        ApiErrorResponse body = new ApiErrorResponse(
+                Instant.now(),
+                statusCode,
+                status.getReasonPhrase(),
+                message,
+                path
+        );
+
+        response.getWriter().write(OBJECT_MAPPER.writeValueAsString(body));
+    }
 
     @Bean
     @Order(0)
@@ -32,9 +60,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(a -> a.anyRequest().authenticated())
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((request, response, authException) ->
-                                response.sendError(401))
+                                writeApiError(response, 401, "Требуется авторизация в Telegram Mini App", request.getRequestURI()))
                         .accessDeniedHandler((request, response, accessDeniedException) ->
-                                response.sendError(403)))
+                                writeApiError(response, 403, "Недостаточно прав для этого действия", request.getRequestURI())))
                 .addFilterBefore(tmaAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

@@ -119,10 +119,18 @@ async function apiFetch(path, options = {}) {
   // По умолчанию считаем, что ответ JSON (кроме 204).
   const response = await fetch(path, opts);
   if (!response.ok) {
-    // Attempt to read the error message from the response
+    // Attempt to extract a readable message from JSON error responses.
     let errText;
     try {
-      errText = await response.text();
+      const rawBody = await response.text();
+      if (rawBody) {
+        try {
+          const parsed = JSON.parse(rawBody);
+          errText = parsed.message || parsed.error || rawBody;
+        } catch (_) {
+          errText = rawBody;
+        }
+      }
     } catch (_) {
       errText = response.statusText;
     }
@@ -481,7 +489,7 @@ function renderEventDetails(event, participants, expenses, balance) {
       deleteParticipantBtn.disabled = true;
       try {
         await apiFetch(`/api/events/${event.id}/participants/${p.id}`, { method: 'DELETE' });
-        await loadEvent(event);
+        await loadEvents();
       } catch (err) {
         showError(err);
       } finally {

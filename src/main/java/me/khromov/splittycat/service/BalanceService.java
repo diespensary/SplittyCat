@@ -35,10 +35,10 @@ public class BalanceService {
     @Transactional
     public MyBalance getMyBalance(Long eventId, User user) {
         Event event = eventRepository.findById(eventId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Событие не найдено"));
 
         Participant me = participantRepository.findByEventAndLinkedUser(event, user)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of this event"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Не участник этого события"));
 
         Long myId = me.getId();
 
@@ -80,7 +80,7 @@ public class BalanceService {
         return map.entrySet().stream()
                 .map(e -> new BalanceEntry(
                         e.getKey().participantId(),
-                        nameById.getOrDefault(e.getKey().participantId(), "Unknown"),
+                        nameById.getOrDefault(e.getKey().participantId(), "Неизвестен"),
                         e.getKey().currencyCode(),
                         e.getValue()
                 ))
