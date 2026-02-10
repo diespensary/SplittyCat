@@ -59,9 +59,9 @@ public class ExpenseService {
         }
         Event event = requireAccess(eventId, user);
         Currency currency = currencyRepository.findByCodeIgnoreCase(currencyCode)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown currency"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Unknown currency"));
         Participant payer = participantRepository.findByIdAndEventId(payerParticipantId, event.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Payer not found in this event"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Payer not found in this event"));
         BigDecimal sumShares = BigDecimal.ZERO;
         for (Map.Entry<Long, BigDecimal> entry : shares.entrySet()) {
             Long participantId = entry.getKey();
@@ -70,14 +70,14 @@ public class ExpenseService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Share amounts must be non‑negative");
             }
             participantRepository.findByIdAndEventId(participantId, event.getId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                             "Participant not found in this event"));
             sumShares = sumShares.add(shareAmount);
         }
         BigDecimal tolerance = new BigDecimal("0.01");
 
         if (sumShares.subtract(amount).abs().compareTo(tolerance) > 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Sum of shares must equal total amount");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Sum of shares must equal total amount");
         }
         Expense expense = new Expense();
         expense.setEvent(event);

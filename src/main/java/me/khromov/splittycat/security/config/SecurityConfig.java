@@ -30,6 +30,11 @@ public class SecurityConfig {
 
         http.securityMatcher("/api/**")
                 .authorizeHttpRequests(a -> a.anyRequest().authenticated())
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint((request, response, authException) ->
+                                response.sendError(401))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                response.sendError(403)))
                 .addFilterBefore(tmaAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

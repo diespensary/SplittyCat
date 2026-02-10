@@ -7,6 +7,7 @@ import me.khromov.splittycat.domain.entity.Participant;
 import me.khromov.splittycat.domain.entity.User;
 import me.khromov.splittycat.domain.repository.EventRepository;
 import me.khromov.splittycat.domain.repository.ParticipantRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -56,7 +57,7 @@ public class ParticipantService {
         }
         try {
             participantRepository.delete(p);
-        } catch (Exception e) {
+        } catch (DataIntegrityViolationException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Participant is used in expenses");
         }
     }
