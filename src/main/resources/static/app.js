@@ -14,10 +14,12 @@
 const webApp = window.Telegram ? window.Telegram.WebApp : null;
 // Строка initData используется для аутентификации на бэкенде.
 const initData = webApp && webApp.initData ? webApp.initData : '';
-let telegramBotUsername = null;
 
 // Корневой контейнер, в который мы рендерим содержимое приложения.
 const appDiv = document.getElementById('app');
+
+// Данные инициализации приложения с бэкенда (в т.ч. username бота).
+let initState = null;
 
 // Попытка получить invite-код из deep-link параметров запуска mini app.
 function getInviteCodeFromLaunchContext() {
@@ -43,9 +45,47 @@ function clearInviteParamsFromUrl() {
   window.history.replaceState({}, '', url);
 }
 
+function normalizeBotUsername(value) {
+  if (!value) {
+    return null;
+  }
+  const normalized = String(value).trim().replace(/^@+/, '');
+  return normalized || null;
+}
+
+function getBotUsernameFromLaunchContext() {
+  if (initState && initState.botUsername) {
+    const fromInit = normalizeBotUsername(initState.botUsername);
+    if (fromInit) {
+      return fromInit;
+    }
+  }
+
+  const receiverUsername = webApp && webApp.initDataUnsafe && webApp.initDataUnsafe.receiver
+      ? webApp.initDataUnsafe.receiver.username
+      : null;
+  const fromReceiver = normalizeBotUsername(receiverUsername);
+  if (fromReceiver) {
+    return fromReceiver;
+  }
+
+  const currentUrl = new URL(window.location.href);
+  if (currentUrl.hostname === 't.me') {
+    const pathUsername = normalizeBotUsername(currentUrl.pathname.replace(/^\/+/, '').split('/')[0]);
+    if (pathUsername) {
+      return pathUsername;
+    }
+  }
+
+  return null;
+}
+
 function buildInviteLink(inviteCode) {
-  if (telegramBotUsername) {
-    return `https://t.me/${telegramBotUsername}?startapp=${encodeURIComponent(inviteCode)}`;
+  const botUsername = getBotUsernameFromLaunchContext();
+  if (botUsername) {
+    const tgLink = new URL(`https://t.me/${botUsername}`);
+    tgLink.searchParams.set('startapp', inviteCode);
+    return tgLink.toString();
   }
 
   const url = new URL(window.location.href);
@@ -133,10 +173,7 @@ async function initApp() {
   showLoading();
   try {
     // /api/init returns 200 only if the user has completed onboarding.
-    const initDataResponse = await apiFetch('/api/init');
-    telegramBotUsername = initDataResponse && initDataResponse.botUsername
-        ? String(initDataResponse.botUsername).trim().replace(/^@/, '')
-        : null;
+    initState = await apiFetch('/api/init');
 
     const inviteCode = getInviteCodeFromLaunchContext();
     if (inviteCode) {
