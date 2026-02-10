@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -43,7 +44,7 @@ public class ExpenseService {
     @Transactional
     public Expense createExpense(Long eventId, String title, BigDecimal amount,
                                  String currencyCode, LocalDate expenseDate,
-                                 Long payerParticipantId, Map<Long, BigDecimal> shares,
+                                 Long payerParticipantId, List<ShareInput> shares,
                                  User user) {
         if (title == null || title.trim().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Title cannot be blank");
@@ -63,9 +64,9 @@ public class ExpenseService {
         Participant payer = participantRepository.findByIdAndEventId(payerParticipantId, event.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Payer not found in this event"));
         BigDecimal sumShares = BigDecimal.ZERO;
-        for (Map.Entry<Long, BigDecimal> entry : shares.entrySet()) {
-            Long participantId = entry.getKey();
-            BigDecimal shareAmount = entry.getValue();
+        for (ShareInput shareInput : shares) {
+            Long participantId = shareInput.participantId();
+            BigDecimal shareAmount = shareInput.amount();
             if (shareAmount == null || shareAmount.compareTo(BigDecimal.ZERO) < 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Share amounts must be non‑negative");
             }
@@ -89,14 +90,30 @@ public class ExpenseService {
         expense.setExpenseDate(expenseDate);
         expense = expenseRepository.save(expense);
 
-        for (Map.Entry<Long, BigDecimal> entry : shares.entrySet()) {
+        for (ShareInput shareInput : shares) {
             ParticipantShare share = new ParticipantShare();
             share.setExpense(expense);
-            share.setParticipant(participantRepository.findById(entry.getKey()).orElse(null));
-            share.setAmount(entry.getValue());
+            share.setParticipant(participantRepository.findById(shareInput.participantId()).orElse(null));
+            share.setAmount(shareInput.amount());
+            share.setDescription(normalizeDescription(shareInput.description()));
             participantShareRepository.save(share);
         }
         return expense;
+    }
+
+    private String normalizeDescription(String description) {
+        if (description == null) {
+            return null;
+        }
+        String trimmed = description.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    public record ShareInput(Long participantId, BigDecimal amount, String description) {
+        public ShareInput {
+            Objects.requireNonNull(participantId, "participantId");
+            Objects.requireNonNull(amount, "amount");
+        }
     }
 
     @Transactional

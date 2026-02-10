@@ -53,10 +53,12 @@ public class ExpenseController {
     public ExpenseSummaryDto createExpense(@PathVariable Long eventId,
                                            @Valid @RequestBody CreateExpenseRequest request) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
-        Map<Long, BigDecimal> sharesMap = new HashMap<>();
-        for (ShareDto share : request.shares()) {
-            sharesMap.put(share.participantId(), share.amount());
-        }
+        List<ExpenseService.ShareInput> shares = request.shares().stream()
+                .map(share -> new ExpenseService.ShareInput(
+                        share.participantId(),
+                        share.amount(),
+                        share.description()))
+                .collect(Collectors.toList());
         Expense expense = expenseService.createExpense(
                 eventId,
                 request.title(),
@@ -64,7 +66,7 @@ public class ExpenseController {
                 request.currencyCode(),
                 request.expenseDate(),
                 request.payerParticipantId(),
-                sharesMap,
+                shares,
                 user);
         return new ExpenseSummaryDto(
                 expense.getId(),

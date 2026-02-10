@@ -643,15 +643,25 @@ function renderEventDetails(event, participants, expenses, balance) {
       const nameSpan = document.createElement('span');
       nameSpan.textContent = p.name;
       li.appendChild(nameSpan);
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.step = '0.01';
-      input.min = '0';
-      input.value = perShare ? perShare.toFixed(2) : '';
-      input.style.marginLeft = '8px';
-      input.style.width = '80px';
-      input.dataset.participantId = p.id;
-      li.appendChild(input);
+      const amountInput = document.createElement('input');
+      amountInput.type = 'number';
+      amountInput.step = '0.01';
+      amountInput.min = '0';
+      amountInput.value = perShare ? perShare.toFixed(2) : '';
+      amountInput.style.marginLeft = '8px';
+      amountInput.style.width = '80px';
+      amountInput.dataset.participantId = p.id;
+      amountInput.dataset.fieldType = 'amount';
+      li.appendChild(amountInput);
+
+      const descriptionInput = document.createElement('input');
+      descriptionInput.type = 'text';
+      descriptionInput.placeholder = 'Комментарий к доле';
+      descriptionInput.style.marginLeft = '8px';
+      descriptionInput.style.width = '220px';
+      descriptionInput.dataset.participantId = p.id;
+      descriptionInput.dataset.fieldType = 'description';
+      li.appendChild(descriptionInput);
       sharesList.appendChild(li);
     });
   }
@@ -676,10 +686,17 @@ function renderEventDetails(event, participants, expenses, balance) {
     if (!title || !amountVal || !currency || !date || !payerId) return;
     // Собираем доли
     const shares = [];
-    sharesList.querySelectorAll('input').forEach(inp => {
-      const val = inp.value;
-      if (!val) return;
-      shares.push({ participantId: parseInt(inp.dataset.participantId), amount: parseFloat(val), description: '' });
+    sharesList.querySelectorAll('li').forEach(shareLi => {
+      const amountInput = shareLi.querySelector('input[data-field-type="amount"]');
+      const descriptionInput = shareLi.querySelector('input[data-field-type="description"]');
+      const amountValue = amountInput ? amountInput.value : '';
+      if (!amountValue) return;
+      const descriptionValue = descriptionInput ? descriptionInput.value.trim() : '';
+      shares.push({
+        participantId: parseInt(amountInput.dataset.participantId),
+        amount: parseFloat(amountValue),
+        description: descriptionValue
+      });
     });
     // Проверяем, что сумма долей совпадает с общей суммой
     const sumShares = shares.reduce((acc, s) => acc + parseFloat(s.amount), 0);
