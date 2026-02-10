@@ -307,37 +307,71 @@ function renderClaimParticipants(inviteCode, joinResponse) {
   h.textContent = `Присоединение к событию «${joinResponse.title}»`;
   appDiv.appendChild(h);
   const info = document.createElement('p');
-  if (joinResponse.unlinkedParticipants.length === 0) {
-    info.textContent = 'В этом событии нет доступных незанятых участников для привязки.';
-    appDiv.appendChild(info);
-    const backBtn = document.createElement('button');
-    backBtn.className = 'btn secondary';
-    backBtn.textContent = 'Назад';
-    backBtn.onclick = loadEvents;
-    appDiv.appendChild(backBtn);
-    return;
-  }
-  info.textContent = 'Выберите участника, которого хотите привязать к себе:';
+  info.textContent = joinResponse.unlinkedParticipants.length === 0
+      ? 'В событии пока нет свободных участников. Вы можете создать новый слот и сразу привязать его к себе.'
+      : 'Выберите свободного участника или создайте новый слот для себя:';
   appDiv.appendChild(info);
-  const list = document.createElement('ul');
-  joinResponse.unlinkedParticipants.forEach(p => {
-    const li = document.createElement('li');
-    const btn = document.createElement('button');
-    btn.className = 'btn';
-    btn.style.width = '100%';
-    btn.textContent = p.name;
-    btn.onclick = async () => {
-      try {
-        const claimedEvent = await apiFetch('/api/events/join/claim', { method: 'POST', body: { inviteCode: inviteCode, participantId: p.id } });
-        await loadEventById(claimedEvent.id);
-      } catch (err) {
-        showError(err);
-      }
-    };
-    li.appendChild(btn);
-    list.appendChild(li);
-  });
-  appDiv.appendChild(list);
+  if (joinResponse.unlinkedParticipants.length > 0) {
+    const list = document.createElement('ul');
+    joinResponse.unlinkedParticipants.forEach(p => {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.style.width = '100%';
+      btn.textContent = p.name;
+      btn.onclick = async () => {
+        try {
+          const claimedEvent = await apiFetch('/api/events/join/claim', { method: 'POST', body: { inviteCode: inviteCode, participantId: p.id } });
+          await loadEventById(claimedEvent.id);
+        } catch (err) {
+          showError(err);
+        }
+      };
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+    appDiv.appendChild(list);
+  }
+
+  const createForm = document.createElement('form');
+  createForm.className = 'section';
+  const createTitle = document.createElement('h3');
+  createTitle.textContent = 'Создать новый слот';
+  createForm.appendChild(createTitle);
+
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.name = 'participantName';
+  nameInput.placeholder = 'Ваше имя в событии';
+  nameInput.required = true;
+  createForm.appendChild(nameInput);
+
+  const createBtn = document.createElement('button');
+  createBtn.type = 'submit';
+  createBtn.className = 'btn';
+  createBtn.textContent = 'Создать и присоединиться';
+  createForm.appendChild(createBtn);
+
+  createForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const participantName = nameInput.value.trim();
+    if (!participantName) {
+      return;
+    }
+    createBtn.disabled = true;
+    try {
+      const claimedEvent = await apiFetch('/api/events/join/claim', {
+        method: 'POST',
+        body: { inviteCode: inviteCode, participantName: participantName }
+      });
+      await loadEventById(claimedEvent.id);
+    } catch (err) {
+      showError(err);
+    } finally {
+      createBtn.disabled = false;
+    }
+  };
+  appDiv.appendChild(createForm);
   const cancelBtn = document.createElement('button');
   cancelBtn.className = 'btn secondary';
   cancelBtn.textContent = 'Отменить';

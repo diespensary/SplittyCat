@@ -88,7 +88,7 @@ public class EventController {
     @PostMapping("/join/claim")
     public EventDto claim(@Valid @RequestBody ClaimRequestBody body) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
-        Participant p = participantService.claimParticipant(body.inviteCode(), body.participantId(), user);
+        Participant p = participantService.claimParticipant(body.inviteCode(), body.participantId(), body.participantName(), user);
         Event event = p.getEvent();
         return new EventDto(event.getId(), event.getTitle(), event.getInviteCode());
     }

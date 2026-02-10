@@ -69,17 +69,33 @@ public class ParticipantService {
     }
 
     @Transactional
-    public Participant claimParticipant(String inviteCode, Long participantId, User user) {
+    public Participant claimParticipant(String inviteCode, Long participantId, String participantName, User user) {
         Event event = eventRepository.findByInviteCode(inviteCode)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));
         boolean alreadyLinked = participantRepository.findByEventAndLinkedUser(event, user).isPresent();
         if (alreadyLinked) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "User has already joined this event");
         }
-        Participant participant = participantRepository.findByIdAndEventId(participantId, event.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Participant not found"));
-        if (participant.getLinkedUser() != null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Participant is already linked");
+        Participant participant;
+        if (participantId != null) {
+            participant = participantRepository.findByIdAndEventId(participantId, event.getId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Participant not found"));
+            if (participant.getLinkedUser() != null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Participant is already linked");
+            }
+        } else {
+            if (participantName == null || participantName.trim().isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Participant name cannot be blank");
+            }
+            String normalized = normalizeName(participantName);
+            if (participantRepository.existsByEventIdAndNormalizedName(event.getId(), normalized)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Participant with the same name already exists");
+            }
+            participant = new Participant();
+            participant.setEvent(event);
+            participant.setName(participantName.trim());
+            participant.setNormalizedName(normalized);
+            participant.setCreatedByUser(user);
         }
         participant.setLinkedUser(user);
         return participantRepository.save(participant);
