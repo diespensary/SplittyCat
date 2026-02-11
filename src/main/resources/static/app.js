@@ -564,6 +564,72 @@ function buildAddExpenseForm(event, participants, onCancel, onSuccess) {
   const sharesList = el('div', { className: 'shares' });
   const selectedParticipants = new Set(participants.map((p) => p.id));
 
+  // что редактировали последним: общую сумму или доли
+  let lastEditSource = null; // 'total' | 'share' | null
+
+  function toCents(value) {
+    if (value === null || value === undefined) return null;
+    let s = String(value).trim();
+    if (!s) return null;
+    s = s.replace(',', '.');
+
+    const m = s.match(/^(-?\d+)(?:\.(\d+))?$/);
+    if (!m) {
+      const n = Number(s);
+      if (!isFinite(n)) return null;
+      return Math.round(n * 100);
+    }
+
+    let whole = parseInt(m[1], 10);
+    let frac = m[2] || '';
+
+    // округление до 2 знаков
+    let carry = 0;
+    if (frac.length > 2) {
+      const third = frac[2];
+      frac = frac.slice(0, 2);
+      if (third >= '5') {
+        let fp = parseInt(frac || '0', 10) + 1;
+        if (fp >= 100) {
+          fp -= 100;
+          carry = 1;
+        }
+        frac = String(fp).padStart(2, '0');
+      }
+    }
+
+    frac = frac.padEnd(2, '0');
+    const sign = whole < 0 ? -1 : 1;
+    whole = Math.abs(whole) + carry;
+
+    const cents = whole * 100 + parseInt(frac, 10);
+    return sign * cents;
+  }
+
+  function centsToInput(cents) {
+    if (!isFinite(cents)) return '';
+    const abs = Math.abs(cents);
+    const whole = Math.floor(abs / 100);
+    const frac = abs % 100;
+    const sign = cents < 0 ? '-' : '';
+    // не показываем .00 если целое
+    if (frac === 0) return `${sign}${whole}`;
+    return `${sign}${whole}.${String(frac).padStart(2, '0')}`;
+  }
+
+  // распределение totalCents на count частей в центах
+  // остаток (+1 цент) уходит к последним участникам (детерминированно)
+  function distributeCents(totalCents, count) {
+    if (count <= 0) return [];
+    const base = Math.floor(totalCents / count);
+    const rem = totalCents - base * count; // 0..count-1
+    const out = new Array(count).fill(base);
+    for (let i = 0; i < rem; i++) {
+      out[count - 1 - i] += 1;
+    }
+    return out;
+  }
+
   function collectDraft() {
     const draft = new Map();
     sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
@@ -582,26 +648,63 @@ function buildAddExpenseForm(event, participants, onCancel, onSuccess) {
     return draft;
   }
 
+  function sumSharesCentsFromDOM() {
+    let sum = 0;
+    sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
+      if (inp.disabled) return;
+      const c = toCents(inp.value);
+      sum += c === null ? 0 : c;
+    });
+    return sum;
+  }
+
+  function updateTotalFromShares() {
+    const total = sumSharesCentsFromDOM();
+    amtInput.value = centsToInput(total);
+  }
 
   function recalcShares() {
     const prev = collectDraft();
     sharesList.innerHTML = '';
 
-    const amount = parseFloat(amtInput.value);
     const active = participants.filter((p) => selectedParticipants.has(p.id));
-    const perShare = active.length > 0 && !isNaN(amount) ? amount / active.length : 0;
+    const totalCents = toCents(amtInput.value);
+
+    // Если редактировали общую сумму — делаем авто-распределение (в центах) только для НЕ dirty полей.
+    const assignedById = new Map();
+    if (lastEditSource !== 'share' && totalCents !== null && active.length > 0) {
+      const dirtyActive = active.filter((p) => prev.get(p.id)?.amountDirty);
+      const nondirtyActive = active.filter((p) => !prev.get(p.id)?.amountDirty);
+
+      const dirtySum = dirtyActive.reduce((acc, p) => {
+        const c = toCents(prev.get(p.id)?.amount);
+        return acc + (c === null ? 0 : c);
+      }, 0);
+
+      let remaining = totalCents - dirtySum;
+      if (remaining < 0) remaining = 0;
+
+      const dist = distributeCents(remaining, nondirtyActive.length);
+      nondirtyActive.forEach((p, idx) => assignedById.set(p.id, dist[idx]));
+    }
 
     participants.forEach((p) => {
       const checked = selectedParticipants.has(p.id);
       const row = el('div', { className: 'shareRow shareRow--stack' });
 
-      const header = el('div', { className: 'shareRow__header' });
+      const header = el('label', { className: 'shareRow__header shareRow__header--clickable' });
+
       const checkbox = el('input', { type: 'checkbox' });
       checkbox.checked = checked;
+
       checkbox.onchange = () => {
         if (checkbox.checked) selectedParticipants.add(p.id);
         else selectedParticipants.delete(p.id);
+
         recalcShares();
+
+        // если мы “в режиме долей” — общая сумма должна следовать за долями
+        if (lastEditSource === 'share') updateTotalFromShares();
       };
 
       header.appendChild(el('div', { className: 'shareRow__check' }, checkbox));
@@ -626,35 +729,56 @@ function buildAddExpenseForm(event, participants, onCancel, onSuccess) {
       });
       descInp.disabled = !checked;
 
-      amountInp.addEventListener('input', () => { amountInp.dataset.dirty = '1'; });
-      descInp.addEventListener('input', () => { descInp.dataset.dirty = '1'; });
-
       const old = prev.get(p.id);
 
+      // восстановление description
       if (checked) {
-        // description: всегда восстанавливаем, dirty — тоже
         if (old?.description) descInp.value = old.description;
         if (old?.descDirty) descInp.dataset.dirty = '1';
+      }
 
-        // amount: сохраняем только если пользователь менял вручную
-        if (old?.amountDirty) {
-          if (old.amount) amountInp.value = old.amount;
-          amountInp.dataset.dirty = '1';
+      // обработчики
+      descInp.addEventListener('input', () => { descInp.dataset.dirty = '1'; });
+
+      amountInp.addEventListener('input', () => {
+        amountInp.dataset.dirty = '1';
+        lastEditSource = 'share';
+        updateTotalFromShares();
+      });
+
+      // восстановление/авто-назначение amount
+      if (checked) {
+        if (lastEditSource === 'share') {
+          // режим “редактирую доли”: никого не перезаписываем, просто возвращаем прошлые значения
+          if (old?.amount !== undefined && old.amount !== null && old.amount !== '') amountInp.value = old.amount;
+          if (old?.amountDirty) amountInp.dataset.dirty = '1';
         } else {
-          // авто-распределение должно обновляться при каждом вводе общей суммы
-          if (perShare) amountInp.value = perShare.toFixed(2);
-          else if (old?.amount) amountInp.value = old.amount; // когда общая сумма пустая
+          // режим “редактирую общую сумму”: dirty сохраняем, остальные — авто-распределяем
+          if (old?.amountDirty) {
+            if (old.amount) amountInp.value = old.amount;
+            amountInp.dataset.dirty = '1';
+          } else if (assignedById.has(p.id)) {
+            amountInp.value = centsToInput(assignedById.get(p.id));
+          } else if (old?.amount) {
+            // когда общая сумма пустая/нечисло — просто восстанавливаем
+            amountInp.value = old.amount;
+          }
         }
       }
 
       row.appendChild(el('div', { className: 'shareRow__field' }, amountInp));
       row.appendChild(el('div', { className: 'shareRow__field' }, descInp));
-
       sharesList.appendChild(row);
     });
   }
 
-  amtInput.addEventListener('input', recalcShares);
+  // Общая сумма → перераспределение
+  amtInput.addEventListener('input', () => {
+    lastEditSource = 'total';
+    recalcShares();
+  });
+
+  // первый рендер
   recalcShares();
 
   const saveBtn = el('button', { className: 'btn', type: 'submit' }, 'Добавить расход');
@@ -677,24 +801,28 @@ function buildAddExpenseForm(event, participants, onCancel, onSuccess) {
     e.preventDefault();
 
     const titleVal = tInput.value.trim();
-    const amountVal = amtInput.value;
     const currencyVal = currencyInput.value.trim().toUpperCase();
     const dateVal = dateInput.value;
     const payerId = payerSelect.value;
 
-    if (!titleVal || !amountVal || !currencyVal || !dateVal || !payerId) return;
+    if (!titleVal || !currencyVal || !dateVal || !payerId) return;
 
     const shares = [];
+    let sumSharesCents = 0;
+
     sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
       if (inp.disabled) return;
-      const amountValue = inp.value;
-      if (!amountValue) return;
 
       const pid = parseInt(inp.dataset.participantId, 10);
       const desc = sharesList.querySelector(`input[data-field-type="description"][data-participant-id="${pid}"]`);
+
+      const c = toCents(inp.value);
+      const cents = c === null ? 0 : c;
+      sumSharesCents += cents;
+
       shares.push({
         participantId: pid,
-        amount: parseFloat(amountValue),
+        amount: cents / 100,
         description: desc ? desc.value.trim() : '',
       });
     });
@@ -704,9 +832,15 @@ function buildAddExpenseForm(event, participants, onCancel, onSuccess) {
       return;
     }
 
-    const sumShares = shares.reduce((acc, s) => acc + parseFloat(s.amount), 0);
-    const total = parseFloat(amountVal);
-    if (Math.abs(sumShares - total) > 0.01) {
+    // если общая сумма пустая — берём её из суммы долей
+    let totalCents = toCents(amtInput.value);
+    if (totalCents === null) {
+      totalCents = sumSharesCents;
+      amtInput.value = centsToInput(totalCents);
+    }
+
+    // сравнение в центах (без float-ошибок)
+    if (Math.abs(sumSharesCents - totalCents) > 1) {
       notify('Сумма долей не равна общей сумме. Проверьте ввод.');
       return;
     }
@@ -717,7 +851,7 @@ function buildAddExpenseForm(event, participants, onCancel, onSuccess) {
         method: 'POST',
         body: {
           title: titleVal,
-          amount: parseFloat(amountVal),
+          amount: totalCents / 100,
           currencyCode: currencyVal,
           expenseDate: dateVal,
           payerParticipantId: parseInt(payerId, 10),
@@ -906,7 +1040,7 @@ function renderEventDetails(event, participants, expenses, balance) {
                 );
 
                 const detailsBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Детали');
-                const delBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Удалить');
+                const delBtn = el('button', { className: 'btn secondary danger', type: 'button' }, 'Удалить');
 
                 const row = el(
                     'div',
@@ -1003,9 +1137,9 @@ function renderEventDetails(event, participants, expenses, balance) {
           el('div', { className: 'topbar' }, el('div', { className: 'topbar__left' }, backBtn), el('div', { className: 'topbar__right' }, deleteEventBtn)),
           title,
           inviteCard,
+          debtsCard,
           participantsCard,
-          expensesCard,
-          debtsCard
+          expensesCard
       )
   );
 }

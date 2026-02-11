@@ -31,7 +31,6 @@ public class EventController {
     private final BalanceService balanceService;
     private final ParticipantRepository participantRepository;
 
-    /** Создание события. */
     @PostMapping
     public EventDto createEvent(@Valid @RequestBody CreateEventRequest request) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
@@ -39,7 +38,6 @@ public class EventController {
         return new EventDto(event.getId(), event.getTitle(), event.getInviteCode());
     }
 
-    /** Список событий пользователя (как владелец или участник). */
     @GetMapping
     public List<EventDto> listEvents() {
         User user = userService.requireOnboardedUser(currentUser.tgId());
@@ -48,7 +46,6 @@ public class EventController {
                 .collect(Collectors.toList());
     }
 
-    /** Получить событие по id (надо быть участником). */
     @GetMapping("/{eventId}")
     public EventDto getEvent(@PathVariable Long eventId) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
@@ -56,7 +53,6 @@ public class EventController {
         return new EventDto(event.getId(), event.getTitle(), event.getInviteCode());
     }
 
-    /** Удалить событие (только владелец). */
     @DeleteMapping("/{eventId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteEvent(@PathVariable Long eventId) {
@@ -64,7 +60,6 @@ public class EventController {
         eventService.deleteEvent(eventId, user);
     }
 
-    /** Начать присоединение по invite‑коду. */
     @PostMapping("/join")
     public JoinResponse join(@Valid @RequestBody JoinRequestBody body) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
@@ -84,7 +79,6 @@ public class EventController {
                 alreadyJoined, myParticipantId, unlinked);
     }
 
-    /** Привязать участника при join. */
     @PostMapping("/join/claim")
     public EventDto claim(@Valid @RequestBody ClaimRequestBody body) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
@@ -93,7 +87,6 @@ public class EventController {
         return new EventDto(event.getId(), event.getTitle(), event.getInviteCode());
     }
 
-    /** Получить баланс пользователя по событию. */
     @GetMapping("/{eventId}/my-balance")
     public BalanceResponse myBalance(@PathVariable Long eventId) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
