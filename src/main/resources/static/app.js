@@ -971,7 +971,7 @@ function renderEventDetails(event, participants, expenses, balance) {
                   del.disabled = true;
                   try {
                     await apiFetch(`/api/events/${event.id}/participants/${p.id}`, { method: 'DELETE' });
-                    await loadEvents();
+                    await loadEvent(event);
                   } catch (err) {
                     showError(err);
                   } finally {
