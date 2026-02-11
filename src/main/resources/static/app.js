@@ -1124,7 +1124,7 @@ function renderEventDetails(event, participants, expenses, balance) {
   }
 
   if (youOwe.length === 0 && oweYou.length === 0) {
-    debtsContent.appendChild(pad(el('p', { className: 'text', text: 'Баланс по этому событию нулевой.' })));
+    debtsContent.appendChild(pad(el('p', { className: 'text', text: 'Нет долгов.' })));
   }
 
   const debtsCard = makeCard('Долги', null, debtsContent);
