@@ -1,7 +1,6 @@
 /* SplittyCat Mini App — refreshed UI (no dependencies) */
 
 :root {
-  /* Telegram theme vars (set by JS when inside Telegram) */
   --tg-bg: #f6f7f9;
   --tg-secondary-bg: #ffffff;
   --tg-text: #111827;
@@ -10,7 +9,6 @@
   --tg-button: #0088cc;
   --tg-button-text: #ffffff;
 
-  /* App tokens */
   --bg: var(--tg-bg);
   --card: var(--tg-secondary-bg);
   --text: var(--tg-text);
@@ -30,9 +28,7 @@
 
 * { box-sizing: border-box; }
 
-html, body {
-  height: 100%;
-}
+html, body { height: 100%; }
 
 body {
   margin: 0;
@@ -47,9 +43,7 @@ body {
           calc(env(safe-area-inset-left) + 0px);
 }
 
-#app {
-  width: 100%;
-}
+#app { width: 100%; }
 
 .container {
   max-width: 720px;
@@ -60,32 +54,18 @@ body {
   gap: var(--gap);
 }
 
-/* Typography */
 h1 {
   margin: 6px 0 0 0;
   font-size: 1.55rem;
   letter-spacing: -0.02em;
 }
 
-p {
-  margin: 0;
-}
+p { margin: 0; }
 
-.text {
-  color: var(--text);
-  font-size: 0.98rem;
-}
+.text { color: var(--text); font-size: 0.98rem; }
+.muted { color: var(--muted); font-size: 0.92rem; }
+a { color: var(--tg-link); }
 
-.muted {
-  color: var(--muted);
-  font-size: 0.92rem;
-}
-
-a {
-  color: var(--tg-link);
-}
-
-/* Topbar */
 .topbar {
   display: flex;
   align-items: center;
@@ -93,14 +73,7 @@ a {
   gap: 10px;
 }
 
-.topbar__title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.topbar__left,
-.topbar__right {
+.topbar__left, .topbar__right {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -135,7 +108,7 @@ a {
 
 .card__sectionTitle {
   font-weight: 650;
-  margin: 0 0 8px 0;
+  margin: 0;
   color: var(--text);
 }
 
@@ -145,7 +118,9 @@ a {
   margin: 12px 0;
 }
 
-.mt { margin-top: 12px; }
+.pad {
+  padding: 12px 14px 14px 14px;
+}
 
 /* Buttons */
 .btn {
@@ -172,7 +147,7 @@ a {
 }
 
 .btn.secondary.danger {
-  border-color: rgba(255, 80, 80, 0.35);
+  border-color: rgba(255, 80, 80, 0.45);
   color: #b91c1c;
 }
 
@@ -185,21 +160,17 @@ a {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 12px 14px 14px 14px;
 }
-
-.actions--tight {
-  padding: 0;
-  gap: 8px;
-}
+.actions--tight { gap: 8px; }
 
 /* Forms */
 .form {
-  padding: 12px 14px 14px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
+
+.form.form--compact { gap: 10px; }
 
 .form__row {
   display: flex;
@@ -207,10 +178,7 @@ a {
   gap: 8px;
 }
 
-.label {
-  font-size: 0.92rem;
-  color: var(--muted);
-}
+.label { font-size: 0.92rem; color: var(--muted); }
 
 input, select {
   width: 100%;
@@ -263,14 +231,8 @@ input:focus, select:focus {
   color: var(--text);
 }
 
-.list__item:last-child {
-  border-bottom: 0;
-}
-
-.list__item:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
+.list__item:last-child { border-bottom: 0; }
+.list__item:disabled { opacity: 0.65; cursor: not-allowed; }
 
 .list__main {
   display: flex;
@@ -278,9 +240,7 @@ input:focus, select:focus {
   gap: 3px;
 }
 
-.list__title {
-  font-weight: 650;
-}
+.list__title { font-weight: 650; }
 
 .list__meta {
   font-size: 0.9rem;
@@ -292,12 +252,42 @@ input:focus, select:focus {
   font-size: 1.2rem;
 }
 
-/* Row cards (participants / expenses / balance) */
+/* Row cards */
 .stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px 14px 14px;
+}
+
+/* --- Fix: expense details should go BELOW the row, not as 3rd flex column --- */
+
+/* allow items inside card-rows to wrap */
+.row--card {
+  flex-wrap: wrap;
+}
+
+/* prevent text from forcing layout overflow */
+.row__left {
+  min-width: 0;
+}
+
+/* keep buttons block from shrinking weirdly */
+.row__right {
+  flex-shrink: 0;
+}
+
+/* when expense-details is appended into the flex row — make it full-width */
+.row--card > .expense-details {
+  flex: 0 0 100%;
+  width: 100%;
+}
+
+/* optional: better wrapping for long meta */
+.expense-details__meta,
+.expense-details__item {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .row {
@@ -342,44 +332,39 @@ input:focus, select:focus {
   color: var(--muted);
 }
 
-/* Shares */
+/* Shares — в формате "карточкой на участника" (лучше для узких экранов) */
 .shares {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 0 14px 14px 14px;
 }
 
 .shareRow {
-  display: grid;
-  grid-template-columns: 28px 1fr 110px 1.2fr;
-  gap: 10px;
-  align-items: center;
-  padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.55);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 :root[data-scheme="dark"] .shareRow {
   background: rgba(0, 0, 0, 0.16);
 }
 
-.shareRow__check { display: flex; justify-content: center; }
-.shareRow__name { font-weight: 600; }
-.shareRow__amount input, .shareRow__desc input { width: 100%; }
+.shareRow__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
-@media (max-width: 520px) {
-  .shareRow {
-    grid-template-columns: 28px 1fr;
-    grid-template-areas:
-      "check name"
-      "amount amount"
-      "desc desc";
-  }
-  .shareRow__check { grid-area: check; }
-  .shareRow__name { grid-area: name; }
-  .shareRow__amount { grid-area: amount; }
-  .shareRow__desc { grid-area: desc; }
+.shareRow__check { display: flex; justify-content: center; }
+.shareRow__name { font-weight: 700; }
+
+.shareRow__field input {
+  width: 100%;
 }
 
 /* Expense details */
@@ -394,6 +379,15 @@ input:focus, select:focus {
   color: var(--muted);
   font-size: 0.92rem;
   margin-bottom: 8px;
+}
+
+.expense-details__metaRow {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.expense-details__metaRow + .expense-details__metaRow {
+  margin-top: 4px;
 }
 
 .expense-details__title {
@@ -436,13 +430,9 @@ input:focus, select:focus {
   animation: spin 0.9s linear infinite;
 }
 
-.loading__text {
-  font-size: 0.95rem;
-}
+.loading__text { font-size: 0.95rem; }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Accessibility helper */
 .sr-only {

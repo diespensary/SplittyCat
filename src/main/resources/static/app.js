@@ -15,7 +15,6 @@ function applyTelegramTheme() {
   const root = document.documentElement;
   const tp = webApp?.themeParams ?? {};
 
-  // Telegram theme params (may be undefined outside TMA)
   const vars = {
     '--tg-bg': tp.bg_color || '',
     '--tg-text': tp.text_color || '',
@@ -30,24 +29,17 @@ function applyTelegramTheme() {
     if (v) root.style.setProperty(k, v);
   });
 
-  // Prefer Telegram's colorScheme if present
-  const scheme = webApp?.colorScheme; // "light" | "dark"
-  if (scheme) {
-    root.dataset.scheme = scheme;
-  }
+  const scheme = webApp?.colorScheme;
+  if (scheme) root.dataset.scheme = scheme;
 }
 
 if (webApp) {
   try {
     applyTelegramTheme();
-    if (typeof webApp.onEvent === 'function') {
-      webApp.onEvent('themeChanged', applyTelegramTheme);
-    }
+    if (typeof webApp.onEvent === 'function') webApp.onEvent('themeChanged', applyTelegramTheme);
     if (typeof webApp.ready === 'function') webApp.ready();
     if (typeof webApp.expand === 'function') webApp.expand();
-  } catch (_) {
-    // ignore
-  }
+  } catch (_) {}
 }
 
 /* ----------------------------- UI primitives ----------------------------- */
@@ -81,34 +73,43 @@ function makeContainer(...children) {
 }
 
 function makeCard(title, subtitle, ...children) {
-  const head = el(
-      'div',
-      { className: 'card__head' },
-      el('div', { className: 'card__title', text: title || '' }),
-      subtitle ? el('div', { className: 'card__subtitle', text: subtitle }) : null
-  );
+  const head =
+      title || subtitle
+          ? el(
+              'div',
+              { className: 'card__head' },
+              title ? el('div', { className: 'card__title', text: title }) : null,
+              subtitle ? el('div', { className: 'card__subtitle', text: subtitle }) : null
+          )
+          : null;
 
-  return el('div', { className: 'card' }, title || subtitle ? head : null, ...children);
+  return el('div', { className: 'card' }, head, ...children);
 }
 
 function makeRow(left, right) {
-  return el('div', { className: 'row' }, el('div', { className: 'row__left' }, left), el('div', { className: 'row__right' }, right));
+  return el(
+      'div',
+      { className: 'row' },
+      el('div', { className: 'row__left' }, left),
+      el('div', { className: 'row__right' }, right)
+  );
 }
 
-function makeP(text, cls = 'muted') {
-  return el('p', { className: cls, text });
+function pad(...children) {
+  return el('div', { className: 'pad' }, ...children);
 }
 
 function showLoading(text = 'Загрузка...') {
-  const view = makeContainer(
-      el(
-          'div',
-          { className: 'loading' },
-          el('div', { className: 'spinner', 'aria-hidden': 'true' }),
-          el('div', { className: 'loading__text', text })
+  setView(
+      makeContainer(
+          el(
+              'div',
+              { className: 'loading' },
+              el('div', { className: 'spinner', 'aria-hidden': 'true' }),
+              el('div', { className: 'loading__text', text })
+          )
       )
   );
-  setView(view);
 }
 
 function notify(message) {
@@ -119,7 +120,6 @@ function notify(message) {
 function showError(err) {
   const msg = err instanceof Error ? err.message : String(err);
   notify(msg);
-  // Useful for debugging in browser
   try { console.error(err); } catch (_) {}
 }
 
@@ -130,7 +130,6 @@ async function copyToClipboard(text) {
       return true;
     }
   } catch (_) {}
-  // fallback
   try {
     const ta = el('textarea', { className: 'sr-only' }, text);
     document.body.appendChild(ta);
@@ -253,13 +252,52 @@ async function apiFetch(path, options = {}) {
   return response.text();
 }
 
+/* ----------------------------- Formatting ----------------------------- */
+
+function formatAmount(n) {
+  const x = Number(n);
+  if (!isFinite(x)) return String(n);
+  const isInt = Math.abs(x - Math.round(x)) < 1e-9;
+  return isInt ? String(Math.round(x)) : x.toFixed(2);
+}
+
+function sumByCurrency(items) {
+  const m = new Map();
+  (items || []).forEach((it) => {
+    const cur = (it.currencyCode || '').toUpperCase() || '???';
+    const val = Number(it.amount);
+    const prev = m.get(cur) || 0;
+    m.set(cur, prev + (isFinite(val) ? val : 0));
+  });
+  return m;
+}
+
+function formatCurrencyMap(map) {
+  if (!map || map.size === 0) return '0';
+  const parts = [];
+  for (const [cur, val] of map.entries()) {
+    parts.push(`${formatAmount(val)} ${cur}`);
+  }
+  return parts.join(', ');
+}
+
+async function fetchEventDebtSummary(eventId) {
+  try {
+    const bal = await apiFetch(`/api/events/${eventId}/my-balance`);
+    const owe = formatCurrencyMap(sumByCurrency(bal.youOwe));
+    const owed = formatCurrencyMap(sumByCurrency(bal.oweYou));
+    return { owe, owed };
+  } catch (_) {
+    return null;
+  }
+}
+
 /* ----------------------------- App init & routing ----------------------------- */
 
 async function initApp() {
   showLoading('Инициализация…');
 
   try {
-    // /api/init returns 200 only if user completed onboarding
     initState = await apiFetch('/api/init');
 
     const inviteCode = getInviteCodeFromLaunchContext();
@@ -294,16 +332,7 @@ function renderRetry(text) {
   const retryBtn = el('button', { className: 'btn', type: 'button' }, 'Повторить');
   retryBtn.onclick = initApp;
 
-  setView(
-      makeContainer(
-          makeCard(
-              'Ошибка',
-              null,
-              makeP(text, 'text'),
-              el('div', { className: 'actions' }, retryBtn)
-          )
-      )
-  );
+  setView(makeContainer(makeCard('Ошибка', null, pad(el('p', { className: 'text', text })), pad(retryBtn))));
 }
 
 function renderNotRegistered() {
@@ -322,12 +351,14 @@ function renderNotRegistered() {
           makeCard(
               'Регистрация не завершена',
               null,
-              el(
-                  'p',
-                  { className: 'text' },
-                  'Вы ещё не завершили регистрацию в боте. Откройте бота SplittyCat в Telegram, завершите процесс регистрации и затем перезапустите мини-приложение.'
+              pad(
+                  el('p', {
+                    className: 'text',
+                    text:
+                        'Вы ещё не завершили регистрацию в боте. Откройте бота SplittyCat в Telegram, завершите процесс регистрации и затем перезапустите мини-приложение.',
+                  })
               ),
-              el('div', { className: 'actions' }, openBot, retryBtn)
+              pad(el('div', { className: 'actions actions--tight' }, openBot, retryBtn))
           )
       )
   );
@@ -358,47 +389,42 @@ async function loadEventById(eventId) {
 }
 
 function renderEventsList(events) {
-  const header = el(
-      'div',
-      { className: 'topbar' },
-      el('div', { className: 'topbar__title' }, el('h1', { text: 'Мои события' }), el('div', { className: 'muted' }, 'SplittyCat')),
-  );
-
-  const listCard =
+  const listContent =
       events.length > 0
-          ? makeCard(
-              'Список событий',
-              'Нажмите на событие, чтобы открыть детали.',
-              el(
-                  'div',
-                  { className: 'list' },
-                  ...events.map((ev) => {
-                    const btn = el('button', { className: 'list__item', type: 'button' },
-                        el('div', { className: 'list__main' },
-                            el('div', { className: 'list__title', text: ev.title }),
-                            el('div', { className: 'list__meta', text: `ID: ${ev.id}` })
-                        ),
-                        el('div', { className: 'list__chev', 'aria-hidden': 'true' }, '›')
-                    );
-                    btn.onclick = () => loadEventById(ev.id);
-                    return btn;
-                  })
-              )
-          )
-          : makeCard(
-              'Пока нет событий',
-              null,
-              makeP('Создайте первое событие ниже.', 'text')
-          );
+          ? el(
+              'div',
+              { className: 'list' },
+              ...events.map((ev) => {
+                const meta = el('div', { className: 'list__meta', text: 'Вы должны: … · Вам должны: …' });
 
-  // Create form
+                const btn = el(
+                    'button',
+                    { className: 'list__item', type: 'button' },
+                    el('div', { className: 'list__main' }, el('div', { className: 'list__title', text: ev.title }), meta),
+                    el('div', { className: 'list__chev', 'aria-hidden': 'true' }, '›')
+                );
+
+                btn.onclick = () => loadEventById(ev.id);
+
+                fetchEventDebtSummary(ev.id).then((sum) => {
+                  if (!sum) return;
+                  meta.textContent = `Вы должны: ${sum.owe} · Вам должны: ${sum.owed}`;
+                });
+
+                return btn;
+              })
+          )
+          : pad(el('p', { className: 'text', text: 'Пока нет событий. Создайте первое событие ниже.' }));
+
+  const listCard = makeCard('Мои события', null, listContent);
+
   const titleInput = el('input', {
     name: 'title',
     type: 'text',
     placeholder: 'Название события',
     required: 'true',
     autocomplete: 'off',
-    inputmode: 'text'
+    inputmode: 'text',
   });
 
   const createBtn = el('button', { className: 'btn', type: 'submit' }, 'Создать');
@@ -407,7 +433,7 @@ function renderEventsList(events) {
       'form',
       { id: 'create-event-form', className: 'form' },
       el('div', { className: 'form__row' }, titleInput),
-      el('div', { className: 'actions' }, createBtn)
+      el('div', { className: 'actions actions--tight' }, createBtn)
   );
 
   createForm.onsubmit = async (e) => {
@@ -427,9 +453,9 @@ function renderEventsList(events) {
     }
   };
 
-  const createCard = makeCard('Создать событие', null, createForm);
+  const createCard = makeCard('Создать событие', null, pad(createForm));
 
-  setView(makeContainer(header, listCard, createCard));
+  setView(makeContainer(listCard, createCard));
 }
 
 /* ----------------------------- Join / Claim participants ----------------------------- */
@@ -488,7 +514,7 @@ function renderClaimParticipants(inviteCode, joinResponse) {
       'form',
       { className: 'form' },
       el('div', { className: 'form__row' }, nameInput),
-      el('div', { className: 'actions' }, createBtn)
+      el('div', { className: 'actions actions--tight' }, createBtn)
   );
 
   createForm.onsubmit = async (e) => {
@@ -515,9 +541,222 @@ function renderClaimParticipants(inviteCode, joinResponse) {
 
   setView(
       makeContainer(
-          makeCard(title, null, makeP(infoText, 'text'), list),
-          makeCard('Создать новый слот', null, createForm),
-          el('div', { className: 'actions' }, cancelBtn)
+          makeCard(title, null, pad(el('p', { className: 'text', text: infoText })), list),
+          makeCard('Создать новый слот', null, pad(createForm)),
+          pad(cancelBtn)
+      )
+  );
+}
+
+/* ----------------------------- Add expense page ----------------------------- */
+
+function buildAddExpenseForm(event, participants, onCancel, onSuccess) {
+  const tInput = el('input', { type: 'text', placeholder: 'Название', required: 'true', autocomplete: 'off' });
+  const amtInput = el('input', { type: 'number', step: '0.01', placeholder: 'Сумма', required: 'true', inputmode: 'decimal' });
+  const currencyInput = el('input', { type: 'text', placeholder: 'Валюта (например, RUB)', value: 'RUB', required: 'true', autocomplete: 'off' });
+
+  const dateInput = el('input', { type: 'date', required: 'true' });
+  dateInput.value = new Date().toISOString().split('T')[0];
+
+  const payerSelect = el('select', { required: 'true' });
+  participants.forEach((p) => payerSelect.appendChild(el('option', { value: p.id, text: p.name })));
+
+  const sharesList = el('div', { className: 'shares' });
+  const selectedParticipants = new Set(participants.map((p) => p.id));
+
+  function collectDraft() {
+    const draft = new Map();
+    sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
+      const pid = Number(inp.dataset.participantId);
+      const desc = sharesList.querySelector(
+          `input[data-field-type="description"][data-participant-id="${pid}"]`
+      );
+
+      draft.set(pid, {
+        amount: inp.value,
+        amountDirty: inp.dataset.dirty === '1',
+        description: desc ? desc.value : '',
+        descDirty: desc ? desc.dataset.dirty === '1' : false,
+      });
+    });
+    return draft;
+  }
+
+
+  function recalcShares() {
+    const prev = collectDraft();
+    sharesList.innerHTML = '';
+
+    const amount = parseFloat(amtInput.value);
+    const active = participants.filter((p) => selectedParticipants.has(p.id));
+    const perShare = active.length > 0 && !isNaN(amount) ? amount / active.length : 0;
+
+    participants.forEach((p) => {
+      const checked = selectedParticipants.has(p.id);
+      const row = el('div', { className: 'shareRow shareRow--stack' });
+
+      const header = el('div', { className: 'shareRow__header' });
+      const checkbox = el('input', { type: 'checkbox' });
+      checkbox.checked = checked;
+      checkbox.onchange = () => {
+        if (checkbox.checked) selectedParticipants.add(p.id);
+        else selectedParticipants.delete(p.id);
+        recalcShares();
+      };
+
+      header.appendChild(el('div', { className: 'shareRow__check' }, checkbox));
+      header.appendChild(el('div', { className: 'shareRow__name', text: p.name }));
+      row.appendChild(header);
+
+      const amountInp = el('input', {
+        type: 'number',
+        step: '0.01',
+        min: '0',
+        placeholder: '0.00',
+        'data-participant-id': p.id,
+        'data-field-type': 'amount',
+      });
+      amountInp.disabled = !checked;
+
+      const descInp = el('input', {
+        type: 'text',
+        placeholder: 'Комментарий',
+        'data-participant-id': p.id,
+        'data-field-type': 'description',
+      });
+      descInp.disabled = !checked;
+
+      amountInp.addEventListener('input', () => { amountInp.dataset.dirty = '1'; });
+      descInp.addEventListener('input', () => { descInp.dataset.dirty = '1'; });
+
+      const old = prev.get(p.id);
+
+      if (checked) {
+        // description: всегда восстанавливаем, dirty — тоже
+        if (old?.description) descInp.value = old.description;
+        if (old?.descDirty) descInp.dataset.dirty = '1';
+
+        // amount: сохраняем только если пользователь менял вручную
+        if (old?.amountDirty) {
+          if (old.amount) amountInp.value = old.amount;
+          amountInp.dataset.dirty = '1';
+        } else {
+          // авто-распределение должно обновляться при каждом вводе общей суммы
+          if (perShare) amountInp.value = perShare.toFixed(2);
+          else if (old?.amount) amountInp.value = old.amount; // когда общая сумма пустая
+        }
+      }
+
+      row.appendChild(el('div', { className: 'shareRow__field' }, amountInp));
+      row.appendChild(el('div', { className: 'shareRow__field' }, descInp));
+
+      sharesList.appendChild(row);
+    });
+  }
+
+  amtInput.addEventListener('input', recalcShares);
+  recalcShares();
+
+  const saveBtn = el('button', { className: 'btn', type: 'submit' }, 'Добавить расход');
+  const cancelBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Отмена');
+  cancelBtn.onclick = onCancel;
+
+  const form = el(
+      'form',
+      { className: 'form' },
+      el('div', { className: 'grid2' }, tInput, amtInput),
+      el('div', { className: 'grid2' }, currencyInput, dateInput),
+      el('div', { className: 'form__row' }, el('label', { className: 'label', text: 'Кто заплатил' }), payerSelect),
+      el('div', { className: 'divider' }),
+      el('div', { className: 'card__sectionTitle inpad', text: 'Доли участников' }),
+      sharesList,
+      el('div', { className: 'actions actions--tight' }, cancelBtn, saveBtn)
+  );
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+
+    const titleVal = tInput.value.trim();
+    const amountVal = amtInput.value;
+    const currencyVal = currencyInput.value.trim().toUpperCase();
+    const dateVal = dateInput.value;
+    const payerId = payerSelect.value;
+
+    if (!titleVal || !amountVal || !currencyVal || !dateVal || !payerId) return;
+
+    const shares = [];
+    sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
+      if (inp.disabled) return;
+      const amountValue = inp.value;
+      if (!amountValue) return;
+
+      const pid = parseInt(inp.dataset.participantId, 10);
+      const desc = sharesList.querySelector(`input[data-field-type="description"][data-participant-id="${pid}"]`);
+      shares.push({
+        participantId: pid,
+        amount: parseFloat(amountValue),
+        description: desc ? desc.value.trim() : '',
+      });
+    });
+
+    if (shares.length === 0) {
+      notify('Выберите хотя бы одного участника для распределения траты.');
+      return;
+    }
+
+    const sumShares = shares.reduce((acc, s) => acc + parseFloat(s.amount), 0);
+    const total = parseFloat(amountVal);
+    if (Math.abs(sumShares - total) > 0.01) {
+      notify('Сумма долей не равна общей сумме. Проверьте ввод.');
+      return;
+    }
+
+    saveBtn.disabled = true;
+    try {
+      await apiFetch(`/api/events/${event.id}/expenses`, {
+        method: 'POST',
+        body: {
+          title: titleVal,
+          amount: parseFloat(amountVal),
+          currencyCode: currencyVal,
+          expenseDate: dateVal,
+          payerParticipantId: parseInt(payerId, 10),
+          shares,
+        },
+      });
+
+      await onSuccess?.();
+    } catch (err) {
+      showError(err);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  };
+
+  return form;
+}
+
+function renderAddExpensePage(event, participants) {
+  const backBtn = el('button', { className: 'btn secondary', type: 'button' }, '← Назад');
+  backBtn.onclick = () => loadEventById(event.id);
+
+  const title = el('h1', { text: 'Добавить расход' });
+
+  const form = buildAddExpenseForm(
+      event,
+      participants,
+      () => loadEventById(event.id),
+      async () => {
+        // после успешного создания — вернуться в событие
+        await loadEventById(event.id);
+      }
+  );
+
+  setView(
+      makeContainer(
+          el('div', { className: 'topbar' }, el('div', { className: 'topbar__left' }, backBtn)),
+          title,
+          makeCard('Расход', null, pad(form))
       )
   );
 }
@@ -546,8 +785,6 @@ function renderEventDetails(event, participants, expenses, balance) {
   const backBtn = el('button', { className: 'btn secondary', type: 'button' }, '← Назад');
   backBtn.onclick = loadEvents;
 
-  const title = el('h1', { text: event.title });
-
   const deleteEventBtn = el('button', { className: 'btn secondary danger', type: 'button' }, 'Удалить событие');
   deleteEventBtn.onclick = async () => {
     if (!confirm('Удалить событие целиком? Это действие нельзя отменить.')) return;
@@ -563,7 +800,9 @@ function renderEventDetails(event, participants, expenses, balance) {
     }
   };
 
-  // Invite link card
+  const title = el('h1', { text: event.title });
+
+  // Invite link (copy only)
   const inviteLink = buildInviteLink(event.inviteCode);
   const inviteInput = el('input', { type: 'text', value: inviteLink, readonly: 'true' });
   inviteInput.addEventListener('focus', () => inviteInput.select());
@@ -574,49 +813,54 @@ function renderEventDetails(event, participants, expenses, balance) {
     notify(ok ? 'Ссылка скопирована в буфер обмена' : 'Не удалось скопировать ссылку');
   };
 
-  const openBtn = el('a', { className: 'btn', href: inviteLink, target: '_blank', rel: 'noopener noreferrer' }, 'Открыть');
-
   const inviteCard = makeCard(
       'Ссылка-приглашение',
-      'Отправьте её друзьям, чтобы они вошли в событие.',
-      el('div', { className: 'form' }, inviteInput),
-      el('div', { className: 'actions' }, openBtn, copyBtn)
+      'Отправьте её друзьям, чтобы они присоединились к событию.',
+      pad(inviteInput),
+      pad(el('div', { className: 'actions actions--tight' }, copyBtn))
   );
 
   // Participants
-  const pList = el(
-      'div',
-      { className: 'stack' },
-      ...participants.map((p) => {
-        const name = el('div', { className: 'row__title' }, p.name, p.linked ? el('span', { className: 'badge' }, 'привязан') : null);
+  const pList =
+      participants.length > 0
+          ? el(
+              'div',
+              { className: 'stack' },
+              ...participants.map((p) => {
+                const left = el(
+                    'div',
+                    { className: 'row__title' },
+                    p.name,
+                    p.linked ? el('span', { className: 'badge' }, 'linked') : null
+                );
 
-        const del = el('button', { className: 'btn secondary', type: 'button' }, 'Удалить');
-        del.onclick = async () => {
-          if (!confirm(`Удалить участника «${p.name}»?`)) return;
-          del.disabled = true;
-          try {
-            await apiFetch(`/api/events/${event.id}/participants/${p.id}`, { method: 'DELETE' });
-            // сохранено поведение как было: после удаления уходим в список
-            await loadEvents();
-          } catch (err) {
-            showError(err);
-          } finally {
-            del.disabled = false;
-          }
-        };
+                const del = el('button', { className: 'btn secondary danger', type: 'button' }, 'Удалить');
+                del.onclick = async () => {
+                  if (!confirm(`Удалить участника «${p.name}»?`)) return;
+                  del.disabled = true;
+                  try {
+                    await apiFetch(`/api/events/${event.id}/participants/${p.id}`, { method: 'DELETE' });
+                    await loadEvents();
+                  } catch (err) {
+                    showError(err);
+                  } finally {
+                    del.disabled = false;
+                  }
+                };
 
-        return makeRow(name, el('div', { className: 'actions actions--tight' }, del));
-      })
-  );
+                return makeRow(el('div', null, left), el('div', { className: 'actions actions--tight' }, del));
+              })
+          )
+          : pad(el('p', { className: 'text', text: 'Пока нет участников.' }));
 
   const addParticipantName = el('input', { type: 'text', placeholder: 'Имя участника', required: 'true', autocomplete: 'off' });
   const addParticipantBtn = el('button', { className: 'btn', type: 'submit' }, 'Добавить');
 
   const addParticipantForm = el(
       'form',
-      { className: 'form' },
+      { className: 'form form--compact' },
       el('div', { className: 'form__row' }, addParticipantName),
-      el('div', { className: 'actions' }, addParticipantBtn)
+      el('div', { className: 'actions actions--tight' }, addParticipantBtn)
   );
 
   addParticipantForm.onsubmit = async (e) => {
@@ -637,17 +881,15 @@ function renderEventDetails(event, participants, expenses, balance) {
   const participantsCard = makeCard(
       'Участники',
       null,
-      participants.length ? pList : makeP('Пока нет участников.', 'text'),
+      pList,
       el('div', { className: 'divider' }),
-      el('div', { className: 'card__sectionTitle', text: 'Добавить участника' }),
-      addParticipantForm
+      pad(el('div', { className: 'card__sectionTitle', text: 'Добавить участника' })),
+      pad(addParticipantForm)
   );
 
-  // Expenses
-  const expensesHeader = makeCard(
-      'Расходы',
-      expenses.length ? 'Нажмите “Детали”, чтобы посмотреть распределение.' : null
-  );
+  // Expenses (single card)
+  const addExpenseBtn = el('button', { className: 'btn', type: 'button' }, 'Добавить расход');
+  addExpenseBtn.onclick = () => renderAddExpensePage(event, participants);
 
   const expensesList =
       expenses.length > 0
@@ -655,20 +897,20 @@ function renderEventDetails(event, participants, expenses, balance) {
               'div',
               { className: 'stack' },
               ...expenses.map((exp) => {
-                const titleLine = el('div', { className: 'row__title' }, exp.title);
-
-                const meta = el(
+                const left = el(
                     'div',
-                    { className: 'row__meta' },
-                    `— ${exp.amount} ${exp.currencyCode}, платил ${exp.payerName}`
-                );
+                    null,
+                    el('div', { className: 'row__title', text: exp.title }),
+                    el('div', { className: 'row__meta', text: `${exp.amount} ${exp.currencyCode}` })
 
-                const left = el('div', null, titleLine, meta);
+                );
 
                 const detailsBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Детали');
                 const delBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Удалить');
 
-                const row = el('div', { className: 'row row--card' },
+                const row = el(
+                    'div',
+                    { className: 'row row--card' },
                     el('div', { className: 'row__left' }, left),
                     el('div', { className: 'row__right' }, el('div', { className: 'actions actions--tight' }, detailsBtn, delBtn))
                 );
@@ -706,183 +948,30 @@ function renderEventDetails(event, participants, expenses, balance) {
                 return row;
               })
           )
-          : makeP('Пока что нет расходов.', 'text');
+          : pad(el('p', { className: 'text', text: 'Пока что нет расходов.' }));
 
-  // Add expense form (same data / endpoints)
-  const tInput = el('input', { type: 'text', placeholder: 'Название расхода', required: 'true', autocomplete: 'off' });
-  const amtInput = el('input', { type: 'number', step: '0.01', placeholder: 'Сумма', required: 'true', inputmode: 'decimal' });
-  const currencyInput = el('input', { type: 'text', placeholder: 'Валюта (например, RUB)', value: 'RUB', required: 'true', autocomplete: 'off' });
-
-  const dateInput = el('input', { type: 'date', required: 'true' });
-  const today = new Date();
-  dateInput.value = today.toISOString().split('T')[0];
-
-  const payerSelect = el('select', { required: 'true' });
-  participants.forEach((p) => payerSelect.appendChild(el('option', { value: p.id, text: p.name })));
-
-  // Shares UI
-  const sharesList = el('div', { className: 'shares' });
-  const selectedParticipants = new Set(participants.map((p) => p.id));
-
-  function collectShareDraft() {
-    const draft = new Map();
-    sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
-      const pid = Number(inp.dataset.participantId);
-      const desc = sharesList.querySelector(`input[data-field-type="description"][data-participant-id="${pid}"]`);
-      draft.set(pid, { amount: inp.value, description: desc ? desc.value : '' });
-    });
-    return draft;
-  }
-
-  function recalcShares() {
-    const prev = collectShareDraft();
-    sharesList.innerHTML = '';
-
-    const amount = parseFloat(amtInput.value);
-    const active = participants.filter((p) => selectedParticipants.has(p.id));
-    const perShare = active.length > 0 && !isNaN(amount) ? amount / active.length : 0;
-
-    participants.forEach((p) => {
-      const checked = selectedParticipants.has(p.id);
-      const row = el('div', { className: 'shareRow' });
-
-      const checkbox = el('input', { type: 'checkbox' });
-      checkbox.checked = checked;
-      checkbox.onchange = () => {
-        if (checkbox.checked) selectedParticipants.add(p.id);
-        else selectedParticipants.delete(p.id);
-        recalcShares();
-      };
-
-      const label = el('div', { className: 'shareRow__name', text: p.name });
-
-      const amountInp = el('input', {
-        type: 'number',
-        step: '0.01',
-        min: '0',
-        placeholder: '0.00',
-        'data-participant-id': p.id,
-        'data-field-type': 'amount',
-      });
-      amountInp.disabled = !checked;
-
-      const descInp = el('input', {
-        type: 'text',
-        placeholder: 'Комментарий',
-        'data-participant-id': p.id,
-        'data-field-type': 'description',
-      });
-      descInp.disabled = !checked;
-
-      // Restore previous values if possible
-      const old = prev.get(p.id);
-      if (checked) {
-        if (old?.amount) amountInp.value = old.amount;
-        else if (perShare) amountInp.value = perShare.toFixed(2);
-        if (old?.description) descInp.value = old.description;
-      }
-
-      row.appendChild(el('div', { className: 'shareRow__check' }, checkbox));
-      row.appendChild(label);
-      row.appendChild(el('div', { className: 'shareRow__amount' }, amountInp));
-      row.appendChild(el('div', { className: 'shareRow__desc' }, descInp));
-
-      sharesList.appendChild(row);
-    });
-  }
-
-  amtInput.addEventListener('input', recalcShares);
-  recalcShares();
-
-  const addExpBtn = el('button', { className: 'btn', type: 'submit' }, 'Добавить расход');
-
-  const addExpForm = el(
-      'form',
-      { className: 'form' },
-      el('div', { className: 'grid2' }, tInput, amtInput),
-      el('div', { className: 'grid2' }, currencyInput, dateInput),
-      el('div', { className: 'form__row' }, el('label', { className: 'label', text: 'Плательщик' }), payerSelect),
-      el('div', { className: 'divider' }),
-      el('div', { className: 'card__sectionTitle', text: 'Доли участников' }),
-      sharesList,
-      el('div', { className: 'actions' }, addExpBtn)
+  const expensesCard = makeCard(
+      'Расходы',
+      'Нажмите “Детали”, чтобы посмотреть распределение.',
+      expensesList,
+      pad(el('div', { className: 'actions actions--tight' }, addExpenseBtn))
   );
 
-  addExpForm.onsubmit = async (e) => {
-    e.preventDefault();
-    const titleVal = tInput.value.trim();
-    const amountVal = amtInput.value;
-    const currencyVal = currencyInput.value.trim().toUpperCase();
-    const dateVal = dateInput.value;
-    const payerId = payerSelect.value;
-
-    if (!titleVal || !amountVal || !currencyVal || !dateVal || !payerId) return;
-
-    const shares = [];
-    sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
-      if (inp.disabled) return;
-      const amountValue = inp.value;
-      if (!amountValue) return;
-
-      const pid = parseInt(inp.dataset.participantId, 10);
-      const desc = sharesList.querySelector(`input[data-field-type="description"][data-participant-id="${pid}"]`);
-      shares.push({
-        participantId: pid,
-        amount: parseFloat(amountValue),
-        description: desc ? desc.value.trim() : '',
-      });
-    });
-
-    if (shares.length === 0) {
-      notify('Выберите хотя бы одного участника для распределения траты.');
-      return;
-    }
-
-    const sumShares = shares.reduce((acc, s) => acc + parseFloat(s.amount), 0);
-    const total = parseFloat(amountVal);
-    if (Math.abs(sumShares - total) > 0.01) {
-      notify('Сумма долей не равна общей сумме. Проверьте ввод.');
-      return;
-    }
-
-    addExpBtn.disabled = true;
-    try {
-      await apiFetch(`/api/events/${event.id}/expenses`, {
-        method: 'POST',
-        body: {
-          title: titleVal,
-          amount: parseFloat(amountVal),
-          currencyCode: currencyVal,
-          expenseDate: dateVal,
-          payerParticipantId: parseInt(payerId, 10),
-          shares: shares,
-        },
-      });
-
-      tInput.value = '';
-      amtInput.value = '';
-      recalcShares();
-      await loadEvent(event);
-    } catch (err) {
-      showError(err);
-    } finally {
-      addExpBtn.disabled = false;
-    }
-  };
-
-  const addExpenseCard = makeCard('Добавить расход', null, addExpForm);
-
-  // Balance
+  // Debts
   const youOwe = balance.youOwe || [];
   const oweYou = balance.oweYou || [];
 
-  function renderBalanceList(items) {
+  function renderDebtList(items) {
     return el(
         'div',
         { className: 'stack' },
         ...items.map((e) =>
-            el('div', { className: 'row row--card' },
-                el('div', { className: 'row__left' },
+            el(
+                'div',
+                { className: 'row row--card' },
+                el(
+                    'div',
+                    { className: 'row__left' },
                     el('div', { className: 'row__title', text: e.participantName }),
                     el('div', { className: 'row__meta', text: `${e.amount} ${e.currencyCode}` })
                 )
@@ -891,17 +980,23 @@ function renderEventDetails(event, participants, expenses, balance) {
     );
   }
 
-  const balanceCard = makeCard(
-      'Мой баланс',
-      null,
-      youOwe.length
-          ? el('div', null, el('div', { className: 'card__sectionTitle', text: 'Вы должны' }), renderBalanceList(youOwe))
-          : null,
-      oweYou.length
-          ? el('div', { className: youOwe.length ? 'mt' : '' }, el('div', { className: 'card__sectionTitle', text: 'Вам должны' }), renderBalanceList(oweYou))
-          : null,
-      youOwe.length === 0 && oweYou.length === 0 ? makeP('Баланс по этому событию нулевой.', 'text') : null
-  );
+  const debtsContent = el('div', null);
+
+  if (youOwe.length > 0) {
+    debtsContent.appendChild(pad(el('div', { className: 'card__sectionTitle', text: 'Вы должны' })));
+    debtsContent.appendChild(renderDebtList(youOwe));
+  }
+
+  if (oweYou.length > 0) {
+    debtsContent.appendChild(pad(el('div', { className: 'card__sectionTitle', text: 'Вам должны' })));
+    debtsContent.appendChild(renderDebtList(oweYou));
+  }
+
+  if (youOwe.length === 0 && oweYou.length === 0) {
+    debtsContent.appendChild(pad(el('p', { className: 'text', text: 'Баланс по этому событию нулевой.' })));
+  }
+
+  const debtsCard = makeCard('Долги', null, debtsContent);
 
   setView(
       makeContainer(
@@ -909,10 +1004,8 @@ function renderEventDetails(event, participants, expenses, balance) {
           title,
           inviteCard,
           participantsCard,
-          expensesHeader,
-          expensesList,
-          addExpenseCard,
-          balanceCard
+          expensesCard,
+          debtsCard
       )
   );
 }
@@ -924,7 +1017,13 @@ function renderExpenseDetails(parentNode, expenseDetails, participantNameById = 
     return;
   }
 
-  const meta = el('div', { className: 'expense-details__meta' }, `Дата: ${expenseDetails.expenseDate}, плательщик: ${expenseDetails.payer.name}`);
+  const meta = el(
+      'div',
+      { className: 'expense-details__meta' },
+      el('div', { className: 'expense-details__metaRow', text: `Дата: ${expenseDetails.expenseDate}` }),
+      el('div', { className: 'expense-details__metaRow', text: `Плательщик: ${expenseDetails.payer.name}` })
+  );
+
 
   const list = el(
       'div',
@@ -936,13 +1035,12 @@ function renderExpenseDetails(parentNode, expenseDetails, participantNameById = 
       })
   );
 
-  const details = el('div', { className: 'expense-details' }, meta, el('div', { className: 'expense-details__title', text: 'Разбивка долей' }), list);
+  const details = el('div', { className: 'expense-details' }, meta, el('div', { className: 'expense-details__title', text: 'Доли' }), list);
   parentNode.appendChild(details);
 }
 
 /* ----------------------------- Start ----------------------------- */
 
 document.addEventListener('DOMContentLoaded', () => {
-  // If Telegram is present, we already called webApp.ready() above.
   initApp();
 });
