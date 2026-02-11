@@ -329,9 +329,6 @@ async function initApp() {
 }
 
 function renderRetry(text) {
-  const retryBtn = el('button', { className: 'btn', type: 'button' }, 'Повторить');
-  retryBtn.onclick = initApp;
-
   setView(makeContainer(makeCard('Ошибка', null, pad(el('p', { className: 'text', text })), pad(retryBtn))));
 }
 
@@ -358,7 +355,7 @@ function renderNotRegistered() {
                         'Вы ещё не завершили регистрацию в боте. Откройте бота SplittyCat в Telegram, завершите процесс регистрации и затем перезапустите мини-приложение.',
                   })
               ),
-              pad(el('div', { className: 'actions actions--tight' }, openBot, retryBtn))
+              pad(el('div', { className: 'actions actions--tight' }, openBot))
           )
       )
   );
