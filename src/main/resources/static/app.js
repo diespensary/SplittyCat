@@ -1,39 +1,160 @@
 /*
- * Основной клиентский код для мини‑приложения SplittyCat.
- *
- * Этот файл реализует простой одностраничный интерфейс,
- * который работает внутри Telegram Mini App и обращается
- * к REST API приложения SplittyCat. Пользователь может
- * просматривать свои события, создавать новые, присоединяться
- * по коду приглашения, а также управлять участниками и расходами
- * конкретного события. Код написан без внешних зависимостей
- * и использует стандартные Web API.
+ * SplittyCat Mini App — UI refresh without breaking API / flows.
+ * No external dependencies. Works inside Telegram Mini App and in browser.
  */
 
-// Telegram Mini App API доступен на объекте window.Telegram.WebApp.
-const webApp = window.Telegram ? window.Telegram.WebApp : null;
-// Строка initData используется для аутентификации на бэкенде.
-const initData = webApp && webApp.initData ? webApp.initData : '';
+const webApp = window.Telegram?.WebApp ?? null;
+const initData = webApp?.initData ?? '';
 
-// Корневой контейнер, в который мы рендерим содержимое приложения.
 const appDiv = document.getElementById('app');
-
-// Данные инициализации приложения с бэкенда (в т.ч. username бота).
 let initState = null;
 
-// Попытка получить invite-код из deep-link параметров запуска mini app.
+/* ----------------------------- Theme helpers ----------------------------- */
+
+function applyTelegramTheme() {
+  const root = document.documentElement;
+  const tp = webApp?.themeParams ?? {};
+
+  // Telegram theme params (may be undefined outside TMA)
+  const vars = {
+    '--tg-bg': tp.bg_color || '',
+    '--tg-text': tp.text_color || '',
+    '--tg-hint': tp.hint_color || '',
+    '--tg-link': tp.link_color || '',
+    '--tg-button': tp.button_color || '',
+    '--tg-button-text': tp.button_text_color || '',
+    '--tg-secondary-bg': tp.secondary_bg_color || '',
+  };
+
+  Object.entries(vars).forEach(([k, v]) => {
+    if (v) root.style.setProperty(k, v);
+  });
+
+  // Prefer Telegram's colorScheme if present
+  const scheme = webApp?.colorScheme; // "light" | "dark"
+  if (scheme) {
+    root.dataset.scheme = scheme;
+  }
+}
+
+if (webApp) {
+  try {
+    applyTelegramTheme();
+    if (typeof webApp.onEvent === 'function') {
+      webApp.onEvent('themeChanged', applyTelegramTheme);
+    }
+    if (typeof webApp.ready === 'function') webApp.ready();
+    if (typeof webApp.expand === 'function') webApp.expand();
+  } catch (_) {
+    // ignore
+  }
+}
+
+/* ----------------------------- UI primitives ----------------------------- */
+
+function el(tag, attrs = null, ...children) {
+  const node = document.createElement(tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === null || v === undefined) continue;
+      if (k === 'className') node.className = v;
+      else if (k === 'text') node.textContent = v;
+      else if (k === 'html') node.innerHTML = v;
+      else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, String(v));
+    }
+  }
+  for (const child of children) {
+    if (child === null || child === undefined) continue;
+    node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+  return node;
+}
+
+function setView(node) {
+  appDiv.innerHTML = '';
+  appDiv.appendChild(node);
+}
+
+function makeContainer(...children) {
+  return el('div', { className: 'container' }, ...children);
+}
+
+function makeCard(title, subtitle, ...children) {
+  const head = el(
+      'div',
+      { className: 'card__head' },
+      el('div', { className: 'card__title', text: title || '' }),
+      subtitle ? el('div', { className: 'card__subtitle', text: subtitle }) : null
+  );
+
+  return el('div', { className: 'card' }, title || subtitle ? head : null, ...children);
+}
+
+function makeRow(left, right) {
+  return el('div', { className: 'row' }, el('div', { className: 'row__left' }, left), el('div', { className: 'row__right' }, right));
+}
+
+function makeP(text, cls = 'muted') {
+  return el('p', { className: cls, text });
+}
+
+function showLoading(text = 'Загрузка...') {
+  const view = makeContainer(
+      el(
+          'div',
+          { className: 'loading' },
+          el('div', { className: 'spinner', 'aria-hidden': 'true' }),
+          el('div', { className: 'loading__text', text })
+      )
+  );
+  setView(view);
+}
+
+function notify(message) {
+  if (webApp && typeof webApp.showAlert === 'function') webApp.showAlert(message);
+  else alert(message);
+}
+
+function showError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  notify(msg);
+  // Useful for debugging in browser
+  try { console.error(err); } catch (_) {}
+}
+
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_) {}
+  // fallback
+  try {
+    const ta = el('textarea', { className: 'sr-only' }, text);
+    document.body.appendChild(ta);
+    ta.value = text;
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+/* ----------------------------- Launch context ----------------------------- */
+
 function getInviteCodeFromLaunchContext() {
   const params = new URLSearchParams(window.location.search);
   const rawParam =
       params.get('invite') ||
       params.get('startapp') ||
       params.get('tgWebAppStartParam') ||
-      (webApp && webApp.initDataUnsafe ? webApp.initDataUnsafe.start_param : null);
+      (webApp?.initDataUnsafe ? webApp.initDataUnsafe.start_param : null);
 
-  if (!rawParam) {
-    return null;
-  }
-
+  if (!rawParam) return null;
   return String(rawParam).trim() || null;
 }
 
@@ -46,35 +167,25 @@ function clearInviteParamsFromUrl() {
 }
 
 function normalizeBotUsername(value) {
-  if (!value) {
-    return null;
-  }
+  if (!value) return null;
   const normalized = String(value).trim().replace(/^@+/, '');
   return normalized || null;
 }
 
 function getBotUsernameFromLaunchContext() {
-  if (initState && initState.botUsername) {
+  if (initState?.botUsername) {
     const fromInit = normalizeBotUsername(initState.botUsername);
-    if (fromInit) {
-      return fromInit;
-    }
+    if (fromInit) return fromInit;
   }
 
-  const receiverUsername = webApp && webApp.initDataUnsafe && webApp.initDataUnsafe.receiver
-      ? webApp.initDataUnsafe.receiver.username
-      : null;
+  const receiverUsername = webApp?.initDataUnsafe?.receiver?.username ?? null;
   const fromReceiver = normalizeBotUsername(receiverUsername);
-  if (fromReceiver) {
-    return fromReceiver;
-  }
+  if (fromReceiver) return fromReceiver;
 
   const currentUrl = new URL(window.location.href);
   if (currentUrl.hostname === 't.me') {
     const pathUsername = normalizeBotUsername(currentUrl.pathname.replace(/^\/+/, '').split('/')[0]);
-    if (pathUsername) {
-      return pathUsername;
-    }
+    if (pathUsername) return pathUsername;
   }
 
   return null;
@@ -95,31 +206,27 @@ function buildInviteLink(inviteCode) {
   return url.toString();
 }
 
-// Общая функция для выполнения запросов к API.
+/* ----------------------------- API fetch helper ----------------------------- */
+
 async function apiFetch(path, options = {}) {
   const opts = { ...options };
   opts.headers = opts.headers ? { ...opts.headers } : {};
+
   if (initData) {
-    // Telegram mini‑app initData contains a signed payload that the backend
-    // uses to authenticate the current user. Historically we sent this as
-    // the custom header X-TMA-Init-Data, but some reverse proxies (ngrok,
-    // certain CDNs) strip or mangle non‑standard headers. To make
-    // authentication more robust, always include the payload as an
-    // Authorization header with the "TMA " prefix. The backend’s
-    // TmaAuthFilter checks Authorization before falling back to
-    // X-TMA-Init-Data, so sending both covers all cases.
     opts.headers['Authorization'] = `TMA ${initData}`;
     opts.headers['X-TMA-Init-Data'] = initData;
   }
-  // При отправке JSON автоматически сериализуем тело
+
+  opts.headers['Accept'] = opts.headers['Accept'] || 'application/json';
+
   if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(opts.body);
   }
-  // По умолчанию считаем, что ответ JSON (кроме 204).
+
   const response = await fetch(path, opts);
+
   if (!response.ok) {
-    // Attempt to extract a readable message from JSON error responses.
     let errText;
     try {
       const rawBody = await response.text();
@@ -134,50 +241,25 @@ async function apiFetch(path, options = {}) {
     } catch (_) {
       errText = response.statusText;
     }
-    // Attach the HTTP status code to the error so callers can
-    // distinguish 401/403 (unauthorized/unregistered) from other errors.
     const err = new Error(errText || 'HTTP ' + response.status);
     err.status = response.status;
     throw err;
   }
-  if (response.status === 204) {
-    return null;
-  }
+
+  if (response.status === 204) return null;
+
   const contentType = response.headers.get('Content-Type');
-  if (contentType && contentType.includes('application/json')) {
-    return response.json();
-  }
+  if (contentType && contentType.includes('application/json')) return response.json();
   return response.text();
 }
 
-// Выводит временное уведомление. По возможности используем Telegram API.
-function notify(message) {
-  if (webApp && typeof webApp.showAlert === 'function') {
-    webApp.showAlert(message);
-  } else {
-    alert(message);
-  }
-}
+/* ----------------------------- App init & routing ----------------------------- */
 
-// Показывает индикатор загрузки. Вызывайте перед асинхронными операциями.
-function showLoading(text = 'Загрузка...') {
-  appDiv.innerHTML = `<p>${text}</p>`;
-}
-
-// Отображает сообщение об ошибке только через системное уведомление Telegram.
-// Не сохраняем ошибку в DOM, чтобы она не "прилипала" к текущему экрану.
-function showError(err) {
-  const msg = err instanceof Error ? err.message : String(err);
-  notify(msg);
-}
-
-// Запускаем инициализацию приложения: проверяем, что пользователь зарегистрирован,
-// и загружаем список его событий. Если пользователь ещё не завершил
-// регистрацию в Telegram боте, сервер вернёт ошибку 403/401.
 async function initApp() {
-  showLoading();
+  showLoading('Инициализация…');
+
   try {
-    // /api/init returns 200 only if the user has completed onboarding.
+    // /api/init returns 200 only if user completed onboarding
     initState = await apiFetch('/api/init');
 
     const inviteCode = getInviteCodeFromLaunchContext();
@@ -185,6 +267,7 @@ async function initApp() {
       try {
         const res = await apiFetch('/api/events/join', { method: 'POST', body: { inviteCode } });
         clearInviteParamsFromUrl();
+
         if (res.alreadyJoined) {
           await loadEventById(res.eventId);
         } else {
@@ -196,39 +279,75 @@ async function initApp() {
       }
     }
 
-    // When init succeeds, fetch and render the user's events.
     await loadEvents();
   } catch (e) {
-    // If the server returns 401 or 403, the user hasn't finished registration.
     if (e && typeof e === 'object' && (e.status === 401 || e.status === 403)) {
-      // Inform the user to complete registration in the bot.
-      appDiv.innerHTML = '';
-      const msgDiv = document.createElement('div');
-      msgDiv.innerHTML = `
-        <p>Вы ещё не завершили регистрацию в боте. Пожалуйста, откройте бота SplittyCat в Telegram, завершите процесс регистрации и затем перезапустите мини‑приложение.</p>
-      `;
-      appDiv.append(msgDiv);
+      renderNotRegistered();
     } else {
-      // For other errors, show a generic error and allow retry.
       showError(e);
+      renderRetry('Не удалось загрузить приложение. Попробуйте ещё раз.');
     }
   }
 }
 
-// Загружает список событий текущего пользователя и рендерит их.
+function renderRetry(text) {
+  const retryBtn = el('button', { className: 'btn', type: 'button' }, 'Повторить');
+  retryBtn.onclick = initApp;
+
+  setView(
+      makeContainer(
+          makeCard(
+              'Ошибка',
+              null,
+              makeP(text, 'text'),
+              el('div', { className: 'actions' }, retryBtn)
+          )
+      )
+  );
+}
+
+function renderNotRegistered() {
+  const botUsername = getBotUsernameFromLaunchContext();
+  const botLink = botUsername ? `https://t.me/${botUsername}` : null;
+
+  const openBot = botLink
+      ? el('a', { className: 'btn', href: botLink, target: '_blank', rel: 'noopener noreferrer' }, 'Открыть бота')
+      : null;
+
+  const retryBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Я завершил регистрацию — обновить');
+  retryBtn.onclick = initApp;
+
+  setView(
+      makeContainer(
+          makeCard(
+              'Регистрация не завершена',
+              null,
+              el(
+                  'p',
+                  { className: 'text' },
+                  'Вы ещё не завершили регистрацию в боте. Откройте бота SplittyCat в Telegram, завершите процесс регистрации и затем перезапустите мини-приложение.'
+              ),
+              el('div', { className: 'actions' }, openBot, retryBtn)
+          )
+      )
+  );
+}
+
+/* ----------------------------- Events list ----------------------------- */
+
 async function loadEvents() {
-  showLoading();
+  showLoading('Загружаю события…');
   try {
     const events = await apiFetch('/api/events');
     renderEventsList(events);
   } catch (e) {
     showError(e);
+    renderRetry('Не удалось загрузить события.');
   }
 }
 
-// Загружает событие по ID через отдельную ручку деталей.
 async function loadEventById(eventId) {
-  showLoading();
+  showLoading('Загружаю событие…');
   try {
     const event = await apiFetch(`/api/events/${eventId}`);
     await loadEvent(event);
@@ -238,59 +357,64 @@ async function loadEventById(eventId) {
   }
 }
 
-// Рендер списка событий. Позволяет создавать новые события.
 function renderEventsList(events) {
-  appDiv.innerHTML = '';
-  const header = document.createElement('h1');
-  header.textContent = 'Мои события';
-  appDiv.appendChild(header);
+  const header = el(
+      'div',
+      { className: 'topbar' },
+      el('div', { className: 'topbar__title' }, el('h1', { text: 'Мои события' }), el('div', { className: 'muted' }, 'SplittyCat')),
+  );
 
-  // Список существующих событий
-  const list = document.createElement('ul');
-  events.forEach(ev => {
-    const li = document.createElement('li');
-    const title = document.createElement('span');
-    title.textContent = ev.title;
-    title.style.cursor = 'pointer';
-    title.style.fontWeight = 'bold';
-    title.onclick = () => {
-      // При клике загружаем детали события через отдельный endpoint.
-      loadEventById(ev.id);
-    };
-    li.appendChild(title);
-    list.appendChild(li);
+  const listCard =
+      events.length > 0
+          ? makeCard(
+              'Список событий',
+              'Нажмите на событие, чтобы открыть детали.',
+              el(
+                  'div',
+                  { className: 'list' },
+                  ...events.map((ev) => {
+                    const btn = el('button', { className: 'list__item', type: 'button' },
+                        el('div', { className: 'list__main' },
+                            el('div', { className: 'list__title', text: ev.title }),
+                            el('div', { className: 'list__meta', text: `ID: ${ev.id}` })
+                        ),
+                        el('div', { className: 'list__chev', 'aria-hidden': 'true' }, '›')
+                    );
+                    btn.onclick = () => loadEventById(ev.id);
+                    return btn;
+                  })
+              )
+          )
+          : makeCard(
+              'Пока нет событий',
+              null,
+              makeP('Создайте первое событие ниже.', 'text')
+          );
+
+  // Create form
+  const titleInput = el('input', {
+    name: 'title',
+    type: 'text',
+    placeholder: 'Название события',
+    required: 'true',
+    autocomplete: 'off',
+    inputmode: 'text'
   });
-  if (events.length > 0) {
-    const section = document.createElement('div');
-    section.className = 'section';
-    const h = document.createElement('h2');
-    h.textContent = 'Список событий';
-    section.appendChild(h);
-    section.appendChild(list);
-    appDiv.appendChild(section);
-  }
 
-  // Форма создания события
-  const createForm = document.createElement('form');
-  createForm.id = 'create-event-form';
-  const createHeader = document.createElement('h2');
-  createHeader.textContent = 'Создать событие';
-  createForm.appendChild(createHeader);
-  const titleInput = document.createElement('input');
-  titleInput.name = 'title';
-  titleInput.type = 'text';
-  titleInput.placeholder = 'Название события';
-  titleInput.required = true;
-  createForm.appendChild(titleInput);
-  const createBtn = document.createElement('button');
-  createBtn.type = 'submit';
-  createBtn.className = 'btn';
-  createBtn.textContent = 'Создать';
-  createForm.appendChild(createBtn);
+  const createBtn = el('button', { className: 'btn', type: 'submit' }, 'Создать');
+
+  const createForm = el(
+      'form',
+      { id: 'create-event-form', className: 'form' },
+      el('div', { className: 'form__row' }, titleInput),
+      el('div', { className: 'actions' }, createBtn)
+  );
+
   createForm.onsubmit = async (e) => {
     e.preventDefault();
     const name = titleInput.value.trim();
     if (!name) return;
+
     createBtn.disabled = true;
     try {
       const createdEvent = await apiFetch('/api/events', { method: 'POST', body: { title: name } });
@@ -302,72 +426,81 @@ function renderEventsList(events) {
       createBtn.disabled = false;
     }
   };
-  appDiv.appendChild(createForm);
+
+  const createCard = makeCard('Создать событие', null, createForm);
+
+  setView(makeContainer(header, listCard, createCard));
 }
 
-// Отрисовывает выбор участника при присоединении к событию.
+/* ----------------------------- Join / Claim participants ----------------------------- */
+
 function renderClaimParticipants(inviteCode, joinResponse) {
-  appDiv.innerHTML = '';
-  const h = document.createElement('h2');
-  h.textContent = `Присоединение к событию «${joinResponse.title}»`;
-  appDiv.appendChild(h);
-  const info = document.createElement('p');
-  info.textContent = joinResponse.unlinkedParticipants.length === 0
-      ? 'В событии пока нет свободных участников. Вы можете создать новый слот и сразу привязать его к себе.'
-      : 'Выберите свободного участника или создайте новый слот для себя:';
-  appDiv.appendChild(info);
-  if (joinResponse.unlinkedParticipants.length > 0) {
-    const list = document.createElement('ul');
-    joinResponse.unlinkedParticipants.forEach(p => {
-      const li = document.createElement('li');
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.style.width = '100%';
-      btn.textContent = p.name;
-      btn.onclick = async () => {
-        try {
-          const claimedEvent = await apiFetch('/api/events/join/claim', { method: 'POST', body: { inviteCode: inviteCode, participantId: p.id } });
-          await loadEventById(claimedEvent.id);
-        } catch (err) {
-          showError(err);
-        }
-      };
-      li.appendChild(btn);
-      list.appendChild(li);
-    });
-    appDiv.appendChild(list);
-  }
+  const title = `Присоединение к событию «${joinResponse.title}»`;
 
-  const createForm = document.createElement('form');
-  createForm.className = 'section';
-  const createTitle = document.createElement('h3');
-  createTitle.textContent = 'Создать новый слот';
-  createForm.appendChild(createTitle);
+  const infoText =
+      joinResponse.unlinkedParticipants.length === 0
+          ? 'В событии пока нет свободных участников. Вы можете создать новый слот и сразу привязать его к себе.'
+          : 'Выберите свободного участника или создайте новый слот для себя:';
 
-  const nameInput = document.createElement('input');
-  nameInput.type = 'text';
-  nameInput.name = 'participantName';
-  nameInput.placeholder = 'Ваше имя в событии';
-  nameInput.required = true;
-  createForm.appendChild(nameInput);
+  const list =
+      joinResponse.unlinkedParticipants.length > 0
+          ? el(
+              'div',
+              { className: 'list' },
+              ...joinResponse.unlinkedParticipants.map((p) => {
+                const btn = el(
+                    'button',
+                    { className: 'list__item', type: 'button' },
+                    el('div', { className: 'list__main' }, el('div', { className: 'list__title', text: p.name })),
+                    el('div', { className: 'list__chev', 'aria-hidden': 'true' }, '›')
+                );
 
-  const createBtn = document.createElement('button');
-  createBtn.type = 'submit';
-  createBtn.className = 'btn';
-  createBtn.textContent = 'Создать и присоединиться';
-  createForm.appendChild(createBtn);
+                btn.onclick = async () => {
+                  btn.disabled = true;
+                  try {
+                    const claimedEvent = await apiFetch('/api/events/join/claim', {
+                      method: 'POST',
+                      body: { inviteCode: inviteCode, participantId: p.id },
+                    });
+                    await loadEventById(claimedEvent.id);
+                  } catch (err) {
+                    showError(err);
+                  } finally {
+                    btn.disabled = false;
+                  }
+                };
+                return btn;
+              })
+          )
+          : null;
+
+  const nameInput = el('input', {
+    type: 'text',
+    name: 'participantName',
+    placeholder: 'Ваше имя в событии',
+    required: 'true',
+    autocomplete: 'off',
+  });
+
+  const createBtn = el('button', { className: 'btn', type: 'submit' }, 'Создать и присоединиться');
+
+  const createForm = el(
+      'form',
+      { className: 'form' },
+      el('div', { className: 'form__row' }, nameInput),
+      el('div', { className: 'actions' }, createBtn)
+  );
 
   createForm.onsubmit = async (e) => {
     e.preventDefault();
     const participantName = nameInput.value.trim();
-    if (!participantName) {
-      return;
-    }
+    if (!participantName) return;
+
     createBtn.disabled = true;
     try {
       const claimedEvent = await apiFetch('/api/events/join/claim', {
         method: 'POST',
-        body: { inviteCode: inviteCode, participantName: participantName }
+        body: { inviteCode: inviteCode, participantName: participantName },
       });
       await loadEventById(claimedEvent.id);
     } catch (err) {
@@ -376,19 +509,24 @@ function renderClaimParticipants(inviteCode, joinResponse) {
       createBtn.disabled = false;
     }
   };
-  appDiv.appendChild(createForm);
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'btn secondary';
-  cancelBtn.textContent = 'Отменить';
+
+  const cancelBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Отменить');
   cancelBtn.onclick = loadEvents;
-  appDiv.appendChild(cancelBtn);
+
+  setView(
+      makeContainer(
+          makeCard(title, null, makeP(infoText, 'text'), list),
+          makeCard('Создать новый слот', null, createForm),
+          el('div', { className: 'actions' }, cancelBtn)
+      )
+  );
 }
 
-// Загружает детали события (участники, расходы, баланс) и отображает их.
+/* ----------------------------- Event details ----------------------------- */
+
 async function loadEvent(event) {
-  showLoading();
+  showLoading('Загружаю детали…');
   try {
-    // Параллельно запрашиваем детали события, участников, расходы и баланс
     const [eventDetails, participants, expenses, balance] = await Promise.all([
       apiFetch(`/api/events/${event.id}`),
       apiFetch(`/api/events/${event.id}/participants`),
@@ -398,29 +536,19 @@ async function loadEvent(event) {
     renderEventDetails(eventDetails, participants, expenses, balance);
   } catch (e) {
     showError(e);
-    // Если ошибка, возвращаемся на список
     await loadEvents();
   }
 }
 
-// Рендерит страницу одного события.
 function renderEventDetails(event, participants, expenses, balance) {
-  const participantNameById = new Map(participants.map((participant) => [participant.id, participant.name]));
-  appDiv.innerHTML = '';
-  // Кнопка назад
-  const backBtn = document.createElement('button');
-  backBtn.className = 'btn secondary';
-  backBtn.textContent = '← Назад';
-  backBtn.onclick = loadEvents;
-  appDiv.appendChild(backBtn);
-  // Заголовок события
-  const h1 = document.createElement('h1');
-  h1.textContent = event.title;
-  appDiv.appendChild(h1);
+  const participantNameById = new Map(participants.map((p) => [p.id, p.name]));
 
-  const deleteEventBtn = document.createElement('button');
-  deleteEventBtn.className = 'btn secondary danger';
-  deleteEventBtn.textContent = 'Удалить событие';
+  const backBtn = el('button', { className: 'btn secondary', type: 'button' }, '← Назад');
+  backBtn.onclick = loadEvents;
+
+  const title = el('h1', { text: event.title });
+
+  const deleteEventBtn = el('button', { className: 'btn secondary danger', type: 'button' }, 'Удалить событие');
   deleteEventBtn.onclick = async () => {
     if (!confirm('Удалить событие целиком? Это действие нельзя отменить.')) return;
     deleteEventBtn.disabled = true;
@@ -434,324 +562,306 @@ function renderEventDetails(event, participants, expenses, balance) {
       deleteEventBtn.disabled = false;
     }
   };
-  appDiv.appendChild(deleteEventBtn);
-  // Ссылка-приглашение и копирование
-  const codeDiv = document.createElement('div');
-  codeDiv.style.marginBottom = '8px';
+
+  // Invite link card
   const inviteLink = buildInviteLink(event.inviteCode);
-  const codeLabel = document.createElement('span');
-  codeLabel.textContent = 'Ссылка-приглашение:';
-  codeDiv.appendChild(codeLabel);
-  const linkEl = document.createElement('a');
-  linkEl.href = inviteLink;
-  linkEl.textContent = inviteLink;
-  linkEl.target = '_blank';
-  linkEl.rel = 'noopener noreferrer';
-  linkEl.style.marginLeft = '6px';
-  codeDiv.appendChild(linkEl);
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'btn secondary';
-  copyBtn.style.marginLeft = '8px';
-  copyBtn.textContent = 'Копировать ссылку';
+  const inviteInput = el('input', { type: 'text', value: inviteLink, readonly: 'true' });
+  inviteInput.addEventListener('focus', () => inviteInput.select());
+
+  const copyBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Копировать');
   copyBtn.onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-      notify('Ссылка скопирована в буфер обмена');
-    } catch {
-      notify('Не удалось скопировать ссылку');
-    }
+    const ok = await copyToClipboard(inviteLink);
+    notify(ok ? 'Ссылка скопирована в буфер обмена' : 'Не удалось скопировать ссылку');
   };
-  codeDiv.appendChild(copyBtn);
-  appDiv.appendChild(codeDiv);
 
-  // Секция участников
-  const participantsSection = document.createElement('div');
-  participantsSection.className = 'section';
-  const ph = document.createElement('h2');
-  ph.textContent = 'Участники';
-  participantsSection.appendChild(ph);
-  const pList = document.createElement('ul');
-  participants.forEach(p => {
-    const li = document.createElement('li');
-    const name = document.createElement('span');
-    name.textContent = p.name + (p.linked ? ' (привязан)' : '');
-    li.appendChild(name);
+  const openBtn = el('a', { className: 'btn', href: inviteLink, target: '_blank', rel: 'noopener noreferrer' }, 'Открыть');
 
-    const deleteParticipantBtn = document.createElement('button');
-    deleteParticipantBtn.className = 'btn secondary';
-    deleteParticipantBtn.style.marginLeft = '8px';
-    deleteParticipantBtn.textContent = 'Удалить';
-    deleteParticipantBtn.onclick = async () => {
-      if (!confirm(`Удалить участника «${p.name}»?`)) return;
-      deleteParticipantBtn.disabled = true;
-      try {
-        await apiFetch(`/api/events/${event.id}/participants/${p.id}`, { method: 'DELETE' });
-        await loadEvents();
-      } catch (err) {
-        showError(err);
-      } finally {
-        deleteParticipantBtn.disabled = false;
-      }
-    };
-    li.appendChild(deleteParticipantBtn);
+  const inviteCard = makeCard(
+      'Ссылка-приглашение',
+      'Отправьте её друзьям, чтобы они вошли в событие.',
+      el('div', { className: 'form' }, inviteInput),
+      el('div', { className: 'actions' }, openBtn, copyBtn)
+  );
 
-    pList.appendChild(li);
-  });
-  participantsSection.appendChild(pList);
-  // Форма добавления участника
-  const addParticipantForm = document.createElement('form');
-  const addHeader = document.createElement('h3');
-  addHeader.textContent = 'Добавить участника';
-  addParticipantForm.appendChild(addHeader);
-  const nameInput = document.createElement('input');
-  nameInput.type = 'text';
-  nameInput.placeholder = 'Имя участника';
-  nameInput.required = true;
-  addParticipantForm.appendChild(nameInput);
-  const addBtn = document.createElement('button');
-  addBtn.type = 'submit';
-  addBtn.className = 'btn';
-  addBtn.textContent = 'Добавить';
-  addParticipantForm.appendChild(addBtn);
+  // Participants
+  const pList = el(
+      'div',
+      { className: 'stack' },
+      ...participants.map((p) => {
+        const name = el('div', { className: 'row__title' }, p.name, p.linked ? el('span', { className: 'badge' }, 'привязан') : null);
+
+        const del = el('button', { className: 'btn secondary', type: 'button' }, 'Удалить');
+        del.onclick = async () => {
+          if (!confirm(`Удалить участника «${p.name}»?`)) return;
+          del.disabled = true;
+          try {
+            await apiFetch(`/api/events/${event.id}/participants/${p.id}`, { method: 'DELETE' });
+            // сохранено поведение как было: после удаления уходим в список
+            await loadEvents();
+          } catch (err) {
+            showError(err);
+          } finally {
+            del.disabled = false;
+          }
+        };
+
+        return makeRow(name, el('div', { className: 'actions actions--tight' }, del));
+      })
+  );
+
+  const addParticipantName = el('input', { type: 'text', placeholder: 'Имя участника', required: 'true', autocomplete: 'off' });
+  const addParticipantBtn = el('button', { className: 'btn', type: 'submit' }, 'Добавить');
+
+  const addParticipantForm = el(
+      'form',
+      { className: 'form' },
+      el('div', { className: 'form__row' }, addParticipantName),
+      el('div', { className: 'actions' }, addParticipantBtn)
+  );
+
   addParticipantForm.onsubmit = async (e) => {
     e.preventDefault();
-    const n = nameInput.value.trim();
+    const n = addParticipantName.value.trim();
     if (!n) return;
-    addBtn.disabled = true;
+    addParticipantBtn.disabled = true;
     try {
       await apiFetch(`/api/events/${event.id}/participants`, { method: 'POST', body: { name: n } });
       await loadEvent(event);
     } catch (err) {
       showError(err);
     } finally {
-      addBtn.disabled = false;
+      addParticipantBtn.disabled = false;
     }
   };
-  participantsSection.appendChild(addParticipantForm);
-  appDiv.appendChild(participantsSection);
 
-  // Секция расходов
-  const expensesSection = document.createElement('div');
-  expensesSection.className = 'section';
-  const eh = document.createElement('h2');
-  eh.textContent = 'Расходы';
-  expensesSection.appendChild(eh);
-  if (expenses.length > 0) {
-    const eList = document.createElement('ul');
-    expenses.forEach(exp => {
-      const li = document.createElement('li');
-      const spanTitle = document.createElement('span');
-      spanTitle.style.fontWeight = 'bold';
-      spanTitle.textContent = exp.title;
-      li.appendChild(spanTitle);
-      const info = document.createElement('span');
-      info.textContent = ` — ${exp.amount} ${exp.currencyCode}, платил ${exp.payerName}`;
-      info.style.marginLeft = '4px';
-      li.appendChild(info);
+  const participantsCard = makeCard(
+      'Участники',
+      null,
+      participants.length ? pList : makeP('Пока нет участников.', 'text'),
+      el('div', { className: 'divider' }),
+      el('div', { className: 'card__sectionTitle', text: 'Добавить участника' }),
+      addParticipantForm
+  );
 
-      const detailsBtn = document.createElement('button');
-      detailsBtn.className = 'btn secondary';
-      detailsBtn.style.marginLeft = '8px';
-      detailsBtn.textContent = 'Детали';
-      detailsBtn.onclick = async () => {
-        detailsBtn.disabled = true;
-        try {
-          const expenseDetails = await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`);
-          renderExpenseDetails(li, expenseDetails, participantNameById);
-        } catch (err) {
-          showError(err);
-        } finally {
-          detailsBtn.disabled = false;
-        }
-      };
-      li.appendChild(detailsBtn);
+  // Expenses
+  const expensesHeader = makeCard(
+      'Расходы',
+      expenses.length ? 'Нажмите “Детали”, чтобы посмотреть распределение.' : null
+  );
 
-      // Кнопка удаления расхода
-      const delBtn = document.createElement('button');
-      delBtn.className = 'btn secondary';
-      delBtn.style.marginLeft = '8px';
-      delBtn.textContent = 'Удалить';
-      delBtn.onclick = async () => {
-        if (!confirm('Удалить этот расход?')) return;
-        delBtn.disabled = true;
-        try {
-          await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`, { method: 'DELETE' });
-          await loadEvent(event);
-        } catch (err) {
-          showError(err);
-        } finally {
-          delBtn.disabled = false;
-        }
-      };
-      li.appendChild(delBtn);
-      eList.appendChild(li);
-    });
-    expensesSection.appendChild(eList);
-  } else {
-    const noExp = document.createElement('p');
-    noExp.textContent = 'Пока что нет расходов.';
-    expensesSection.appendChild(noExp);
-  }
-  // Форма добавления расхода
-  const addExpForm = document.createElement('form');
-  const expHeader = document.createElement('h3');
-  expHeader.textContent = 'Добавить расход';
-  addExpForm.appendChild(expHeader);
-  const tInput = document.createElement('input');
-  tInput.type = 'text';
-  tInput.placeholder = 'Название расхода';
-  tInput.required = true;
-  addExpForm.appendChild(tInput);
-  const amtInput = document.createElement('input');
-  amtInput.type = 'number';
-  amtInput.step = '0.01';
-  amtInput.placeholder = 'Сумма';
-  amtInput.required = true;
-  addExpForm.appendChild(amtInput);
-  const currencyInput = document.createElement('input');
-  currencyInput.type = 'text';
-  currencyInput.placeholder = 'Валюта (например, RUB)';
-  currencyInput.value = 'RUB';
-  currencyInput.required = true;
-  addExpForm.appendChild(currencyInput);
-  const dateInput = document.createElement('input');
-  dateInput.type = 'date';
-  // По умолчанию устанавливаем сегодняшнюю дату
+  const expensesList =
+      expenses.length > 0
+          ? el(
+              'div',
+              { className: 'stack' },
+              ...expenses.map((exp) => {
+                const titleLine = el('div', { className: 'row__title' }, exp.title);
+
+                const meta = el(
+                    'div',
+                    { className: 'row__meta' },
+                    `— ${exp.amount} ${exp.currencyCode}, платил ${exp.payerName}`
+                );
+
+                const left = el('div', null, titleLine, meta);
+
+                const detailsBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Детали');
+                const delBtn = el('button', { className: 'btn secondary', type: 'button' }, 'Удалить');
+
+                const row = el('div', { className: 'row row--card' },
+                    el('div', { className: 'row__left' }, left),
+                    el('div', { className: 'row__right' }, el('div', { className: 'actions actions--tight' }, detailsBtn, delBtn))
+                );
+
+                detailsBtn.onclick = async () => {
+                  const existing = row.querySelector('.expense-details');
+                  if (existing) {
+                    existing.remove();
+                    return;
+                  }
+                  detailsBtn.disabled = true;
+                  try {
+                    const expenseDetails = await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`);
+                    renderExpenseDetails(row, expenseDetails, participantNameById);
+                  } catch (err) {
+                    showError(err);
+                  } finally {
+                    detailsBtn.disabled = false;
+                  }
+                };
+
+                delBtn.onclick = async () => {
+                  if (!confirm('Удалить этот расход?')) return;
+                  delBtn.disabled = true;
+                  try {
+                    await apiFetch(`/api/events/${event.id}/expenses/${exp.id}`, { method: 'DELETE' });
+                    await loadEvent(event);
+                  } catch (err) {
+                    showError(err);
+                  } finally {
+                    delBtn.disabled = false;
+                  }
+                };
+
+                return row;
+              })
+          )
+          : makeP('Пока что нет расходов.', 'text');
+
+  // Add expense form (same data / endpoints)
+  const tInput = el('input', { type: 'text', placeholder: 'Название расхода', required: 'true', autocomplete: 'off' });
+  const amtInput = el('input', { type: 'number', step: '0.01', placeholder: 'Сумма', required: 'true', inputmode: 'decimal' });
+  const currencyInput = el('input', { type: 'text', placeholder: 'Валюта (например, RUB)', value: 'RUB', required: 'true', autocomplete: 'off' });
+
+  const dateInput = el('input', { type: 'date', required: 'true' });
   const today = new Date();
   dateInput.value = today.toISOString().split('T')[0];
-  dateInput.required = true;
-  addExpForm.appendChild(dateInput);
-  // Выбор плательщика
-  const payerSelect = document.createElement('select');
-  participants.forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.name;
-    payerSelect.appendChild(opt);
-  });
-  addExpForm.appendChild(payerSelect);
-  // Динамический список долей
-  const sharesDiv = document.createElement('div');
-  sharesDiv.className = 'section';
-  const shHeader = document.createElement('h4');
-  shHeader.textContent = 'Доли участников';
-  sharesDiv.appendChild(shHeader);
-  const sharesList = document.createElement('ul');
-  sharesDiv.appendChild(sharesList);
 
+  const payerSelect = el('select', { required: 'true' });
+  participants.forEach((p) => payerSelect.appendChild(el('option', { value: p.id, text: p.name })));
+
+  // Shares UI
+  const sharesList = el('div', { className: 'shares' });
   const selectedParticipants = new Set(participants.map((p) => p.id));
 
-  // Функция для перерасчёта равных долей
+  function collectShareDraft() {
+    const draft = new Map();
+    sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
+      const pid = Number(inp.dataset.participantId);
+      const desc = sharesList.querySelector(`input[data-field-type="description"][data-participant-id="${pid}"]`);
+      draft.set(pid, { amount: inp.value, description: desc ? desc.value : '' });
+    });
+    return draft;
+  }
+
   function recalcShares() {
+    const prev = collectShareDraft();
     sharesList.innerHTML = '';
+
     const amount = parseFloat(amtInput.value);
-    const activeParticipants = participants.filter((p) => selectedParticipants.has(p.id));
-    const perShare = activeParticipants.length > 0 && !isNaN(amount) ? amount / activeParticipants.length : 0;
-    participants.forEach(p => {
-      const li = document.createElement('li');
-      const includeCheckbox = document.createElement('input');
-      includeCheckbox.type = 'checkbox';
-      includeCheckbox.checked = selectedParticipants.has(p.id);
-      includeCheckbox.style.marginRight = '8px';
-      includeCheckbox.onchange = () => {
-        if (includeCheckbox.checked) {
-          selectedParticipants.add(p.id);
-        } else {
-          selectedParticipants.delete(p.id);
-        }
+    const active = participants.filter((p) => selectedParticipants.has(p.id));
+    const perShare = active.length > 0 && !isNaN(amount) ? amount / active.length : 0;
+
+    participants.forEach((p) => {
+      const checked = selectedParticipants.has(p.id);
+      const row = el('div', { className: 'shareRow' });
+
+      const checkbox = el('input', { type: 'checkbox' });
+      checkbox.checked = checked;
+      checkbox.onchange = () => {
+        if (checkbox.checked) selectedParticipants.add(p.id);
+        else selectedParticipants.delete(p.id);
         recalcShares();
       };
-      li.appendChild(includeCheckbox);
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = p.name;
-      li.appendChild(nameSpan);
-      const amountInput = document.createElement('input');
-      amountInput.type = 'number';
-      amountInput.step = '0.01';
-      amountInput.min = '0';
-      amountInput.value = includeCheckbox.checked && perShare ? perShare.toFixed(2) : '';
-      amountInput.style.marginLeft = '8px';
-      amountInput.style.width = '80px';
-      amountInput.dataset.participantId = p.id;
-      amountInput.dataset.fieldType = 'amount';
-      amountInput.disabled = !includeCheckbox.checked;
-      li.appendChild(amountInput);
 
-      const descriptionInput = document.createElement('input');
-      descriptionInput.type = 'text';
-      descriptionInput.placeholder = 'Комментарий к доле';
-      descriptionInput.style.marginLeft = '8px';
-      descriptionInput.style.width = '220px';
-      descriptionInput.dataset.participantId = p.id;
-      descriptionInput.dataset.fieldType = 'description';
-      descriptionInput.disabled = !includeCheckbox.checked;
-      li.appendChild(descriptionInput);
-      sharesList.appendChild(li);
+      const label = el('div', { className: 'shareRow__name', text: p.name });
+
+      const amountInp = el('input', {
+        type: 'number',
+        step: '0.01',
+        min: '0',
+        placeholder: '0.00',
+        'data-participant-id': p.id,
+        'data-field-type': 'amount',
+      });
+      amountInp.disabled = !checked;
+
+      const descInp = el('input', {
+        type: 'text',
+        placeholder: 'Комментарий',
+        'data-participant-id': p.id,
+        'data-field-type': 'description',
+      });
+      descInp.disabled = !checked;
+
+      // Restore previous values if possible
+      const old = prev.get(p.id);
+      if (checked) {
+        if (old?.amount) amountInp.value = old.amount;
+        else if (perShare) amountInp.value = perShare.toFixed(2);
+        if (old?.description) descInp.value = old.description;
+      }
+
+      row.appendChild(el('div', { className: 'shareRow__check' }, checkbox));
+      row.appendChild(label);
+      row.appendChild(el('div', { className: 'shareRow__amount' }, amountInp));
+      row.appendChild(el('div', { className: 'shareRow__desc' }, descInp));
+
+      sharesList.appendChild(row);
     });
   }
-  // Вызываем при изменении суммы
+
   amtInput.addEventListener('input', recalcShares);
-  // Инициализируем доли
   recalcShares();
 
-  addExpForm.appendChild(sharesDiv);
-  const addExpBtn = document.createElement('button');
-  addExpBtn.type = 'submit';
-  addExpBtn.className = 'btn';
-  addExpBtn.textContent = 'Добавить расход';
-  addExpForm.appendChild(addExpBtn);
+  const addExpBtn = el('button', { className: 'btn', type: 'submit' }, 'Добавить расход');
+
+  const addExpForm = el(
+      'form',
+      { className: 'form' },
+      el('div', { className: 'grid2' }, tInput, amtInput),
+      el('div', { className: 'grid2' }, currencyInput, dateInput),
+      el('div', { className: 'form__row' }, el('label', { className: 'label', text: 'Плательщик' }), payerSelect),
+      el('div', { className: 'divider' }),
+      el('div', { className: 'card__sectionTitle', text: 'Доли участников' }),
+      sharesList,
+      el('div', { className: 'actions' }, addExpBtn)
+  );
+
   addExpForm.onsubmit = async (e) => {
     e.preventDefault();
-    const title = tInput.value.trim();
+    const titleVal = tInput.value.trim();
     const amountVal = amtInput.value;
-    const currency = currencyInput.value.trim().toUpperCase();
-    const date = dateInput.value;
+    const currencyVal = currencyInput.value.trim().toUpperCase();
+    const dateVal = dateInput.value;
     const payerId = payerSelect.value;
-    if (!title || !amountVal || !currency || !date || !payerId) return;
-    // Собираем доли
+
+    if (!titleVal || !amountVal || !currencyVal || !dateVal || !payerId) return;
+
     const shares = [];
-    sharesList.querySelectorAll('li').forEach(shareLi => {
-      const amountInput = shareLi.querySelector('input[data-field-type="amount"]');
-      const descriptionInput = shareLi.querySelector('input[data-field-type="description"]');
-      if (!amountInput || amountInput.disabled) return;
-      const amountValue = amountInput ? amountInput.value : '';
+    sharesList.querySelectorAll('input[data-field-type="amount"]').forEach((inp) => {
+      if (inp.disabled) return;
+      const amountValue = inp.value;
       if (!amountValue) return;
-      const descriptionValue = descriptionInput ? descriptionInput.value.trim() : '';
+
+      const pid = parseInt(inp.dataset.participantId, 10);
+      const desc = sharesList.querySelector(`input[data-field-type="description"][data-participant-id="${pid}"]`);
       shares.push({
-        participantId: parseInt(amountInput.dataset.participantId),
+        participantId: pid,
         amount: parseFloat(amountValue),
-        description: descriptionValue
+        description: desc ? desc.value.trim() : '',
       });
     });
+
     if (shares.length === 0) {
       notify('Выберите хотя бы одного участника для распределения траты.');
       return;
     }
-    // Проверяем, что сумма долей совпадает с общей суммой
+
     const sumShares = shares.reduce((acc, s) => acc + parseFloat(s.amount), 0);
     const total = parseFloat(amountVal);
     if (Math.abs(sumShares - total) > 0.01) {
       notify('Сумма долей не равна общей сумме. Проверьте ввод.');
       return;
     }
+
     addExpBtn.disabled = true;
     try {
       await apiFetch(`/api/events/${event.id}/expenses`, {
         method: 'POST',
         body: {
-          title: title,
+          title: titleVal,
           amount: parseFloat(amountVal),
-          currencyCode: currency,
-          expenseDate: date,
-          payerParticipantId: parseInt(payerId),
-          shares: shares
-        }
+          currencyCode: currencyVal,
+          expenseDate: dateVal,
+          payerParticipantId: parseInt(payerId, 10),
+          shares: shares,
+        },
       });
-      // Сбросим форму
+
       tInput.value = '';
       amtInput.value = '';
       recalcShares();
-      // Перезагрузим данные события
       await loadEvent(event);
     } catch (err) {
       showError(err);
@@ -759,86 +869,80 @@ function renderEventDetails(event, participants, expenses, balance) {
       addExpBtn.disabled = false;
     }
   };
-  expensesSection.appendChild(addExpForm);
-  appDiv.appendChild(expensesSection);
 
-  // Секция баланса
-  const balSection = document.createElement('div');
-  balSection.className = 'section';
-  const bh = document.createElement('h2');
-  bh.textContent = 'Мой баланс';
-  balSection.appendChild(bh);
-  // Вы должны
+  const addExpenseCard = makeCard('Добавить расход', null, addExpForm);
+
+  // Balance
   const youOwe = balance.youOwe || [];
-  if (youOwe.length > 0) {
-    const subtitle = document.createElement('h3');
-    subtitle.textContent = 'Вы должны';
-    balSection.appendChild(subtitle);
-    const ulOwe = document.createElement('ul');
-    youOwe.forEach(e => {
-      const li = document.createElement('li');
-      li.textContent = `${e.participantName}: ${e.amount} ${e.currencyCode}`;
-      ulOwe.appendChild(li);
-    });
-    balSection.appendChild(ulOwe);
-  }
-  // Вам должны
   const oweYou = balance.oweYou || [];
-  if (oweYou.length > 0) {
-    const subtitle2 = document.createElement('h3');
-    subtitle2.textContent = 'Вам должны';
-    balSection.appendChild(subtitle2);
-    const ulOweYou = document.createElement('ul');
-    oweYou.forEach(e => {
-      const li = document.createElement('li');
-      li.textContent = `${e.participantName}: ${e.amount} ${e.currencyCode}`;
-      ulOweYou.appendChild(li);
-    });
-    balSection.appendChild(ulOweYou);
+
+  function renderBalanceList(items) {
+    return el(
+        'div',
+        { className: 'stack' },
+        ...items.map((e) =>
+            el('div', { className: 'row row--card' },
+                el('div', { className: 'row__left' },
+                    el('div', { className: 'row__title', text: e.participantName }),
+                    el('div', { className: 'row__meta', text: `${e.amount} ${e.currencyCode}` })
+                )
+            )
+        )
+    );
   }
-  if (youOwe.length === 0 && oweYou.length === 0) {
-    const p = document.createElement('p');
-    p.textContent = 'Баланс по этому событию нулевой.';
-    balSection.appendChild(p);
-  }
-  appDiv.appendChild(balSection);
+
+  const balanceCard = makeCard(
+      'Мой баланс',
+      null,
+      youOwe.length
+          ? el('div', null, el('div', { className: 'card__sectionTitle', text: 'Вы должны' }), renderBalanceList(youOwe))
+          : null,
+      oweYou.length
+          ? el('div', { className: youOwe.length ? 'mt' : '' }, el('div', { className: 'card__sectionTitle', text: 'Вам должны' }), renderBalanceList(oweYou))
+          : null,
+      youOwe.length === 0 && oweYou.length === 0 ? makeP('Баланс по этому событию нулевой.', 'text') : null
+  );
+
+  setView(
+      makeContainer(
+          el('div', { className: 'topbar' }, el('div', { className: 'topbar__left' }, backBtn), el('div', { className: 'topbar__right' }, deleteEventBtn)),
+          title,
+          inviteCard,
+          participantsCard,
+          expensesHeader,
+          expensesList,
+          addExpenseCard,
+          balanceCard
+      )
+  );
 }
 
-function renderExpenseDetails(parentLi, expenseDetails, participantNameById = new Map()) {
-  const existing = parentLi.querySelector('.expense-details');
+function renderExpenseDetails(parentNode, expenseDetails, participantNameById = new Map()) {
+  const existing = parentNode.querySelector('.expense-details');
   if (existing) {
     existing.remove();
     return;
   }
 
-  const detailsDiv = document.createElement('div');
-  detailsDiv.className = 'expense-details';
+  const meta = el('div', { className: 'expense-details__meta' }, `Дата: ${expenseDetails.expenseDate}, плательщик: ${expenseDetails.payer.name}`);
 
-  const meta = document.createElement('p');
-  meta.textContent = `Дата: ${expenseDetails.expenseDate}, плательщик: ${expenseDetails.payer.name}`;
-  detailsDiv.appendChild(meta);
+  const list = el(
+      'div',
+      { className: 'expense-details__list' },
+      ...expenseDetails.shares.map((share) => {
+        const note = share.description ? ` (${share.description})` : '';
+        const participantName = participantNameById.get(share.participantId) || `ID участника ${share.participantId}`;
+        return el('div', { className: 'expense-details__item' }, `${participantName}: ${share.amount}${note}`);
+      })
+  );
 
-  const sharesHeader = document.createElement('strong');
-  sharesHeader.textContent = 'Разбивка долей:';
-  detailsDiv.appendChild(sharesHeader);
-
-  const sharesList = document.createElement('ul');
-  expenseDetails.shares.forEach((share) => {
-    const shareLi = document.createElement('li');
-    const note = share.description ? ` (${share.description})` : '';
-    const participantName = participantNameById.get(share.participantId) || `ID участника ${share.participantId}`;
-    shareLi.textContent = `${participantName}: ${share.amount}${note}`;
-    sharesList.appendChild(shareLi);
-  });
-  detailsDiv.appendChild(sharesList);
-  parentLi.appendChild(detailsDiv);
+  const details = el('div', { className: 'expense-details' }, meta, el('div', { className: 'expense-details__title', text: 'Разбивка долей' }), list);
+  parentNode.appendChild(details);
 }
 
-// Запускаем приложение после загрузки DOM
+/* ----------------------------- Start ----------------------------- */
+
 document.addEventListener('DOMContentLoaded', () => {
-  // Открываем встроенную клавиатуру mini app, чтобы пользователь видел UI
-  if (webApp && typeof webApp.ready === 'function') {
-    webApp.ready();
-  }
+  // If Telegram is present, we already called webApp.ready() above.
   initApp();
 });
