@@ -12,6 +12,7 @@ import me.khromov.splittycat.service.EventService;
 import me.khromov.splittycat.service.ParticipantService;
 import me.khromov.splittycat.service.UserService;
 import me.khromov.splittycat.domain.repository.ParticipantRepository;
+import me.khromov.splittycat.service.dto.MyBalance;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -90,7 +91,7 @@ public class EventController {
     @GetMapping("/{eventId}/my-balance")
     public BalanceResponse myBalance(@PathVariable Long eventId) {
         User user = userService.requireOnboardedUser(currentUser.tgId());
-        var balance = balanceService.getMyBalance(eventId, user);
+        MyBalance balance = balanceService.getMyBalance(eventId, user);
 
         List<BalanceEntryDto> youOwe = balance.youOwe().stream()
                 .map(e -> new BalanceEntryDto(e.participantId(), e.participantName(), e.currencyCode(), e.amount()))

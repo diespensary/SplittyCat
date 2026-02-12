@@ -34,7 +34,7 @@ public class UserService {
                     return u;
                 })
                 .orElseGet(() -> {
-                    var u = new User();
+                    User u = new User();
                     u.setTgId(tgId);
                     u.setUsername(defaultUsername(candidate));
                     u.setRegistrationStep(RegistrationStep.NONE);
@@ -45,7 +45,7 @@ public class UserService {
 
     @Transactional
     public User requireOnboardedUser(long tgId) {
-        var u = userRepository.findByTgId(tgId).orElseThrow(() ->
+        User u = userRepository.findByTgId(tgId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Сначала завершите регистрацию в боте (/start)")
         );
@@ -58,14 +58,14 @@ public class UserService {
 
     @Transactional
     public void startRegistration(long tgId) {
-        var u = requireRegisteredUser(tgId);
+        User u = requireRegisteredUser(tgId);
         u.setOnboarded(false);
         u.setRegistrationStep(REGISTRATION_FLOW.get(0));
     }
 
     @Transactional
     public void completeRegistration(long tgId) {
-        var u = requireRegisteredUser(tgId);
+        User u = requireRegisteredUser(tgId);
         u.setOnboarded(true);
         u.setRegistrationStep(RegistrationStep.NONE);
     }
@@ -79,7 +79,7 @@ public class UserService {
 
     @Transactional
     public void proceedToNextStep(long tgId) {
-        var u = requireRegisteredUser(tgId);
+        User u = requireRegisteredUser(tgId);
         int idx = REGISTRATION_FLOW.indexOf(u.getRegistrationStep());
         if (idx >= 0 && idx + 1 < REGISTRATION_FLOW.size()) {
             u.setRegistrationStep(REGISTRATION_FLOW.get(idx + 1));
@@ -94,7 +94,7 @@ public class UserService {
         if (username.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Имя пользователя не может быть пустым");
         }
-        var u = requireRegisteredUser(tgId);
+        User u = requireRegisteredUser(tgId);
         u.setUsername(username);
         u.setOnboarded(true);
         u.setRegistrationStep(RegistrationStep.NONE);

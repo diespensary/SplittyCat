@@ -13,7 +13,7 @@ public class TelegramConfig {
 
     @Bean
     public TelegramInitDataValidator telegramInitDataValidator(TelegramProperties props) {
-        var mapper = new ObjectMapper()
+        ObjectMapper mapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
         return new TelegramInitDataValidator(mapper, props.getBotToken(), props.getInitDataMaxAgeSeconds());

@@ -94,11 +94,15 @@ public class TelegramInitDataValidator {
     }
 
     private static Map<String, String> parseQuery(String query) {
-        if (query == null || query.isBlank()) throw new IllegalArgumentException();
+        if (query == null || query.isBlank()) {
+            throw new IllegalArgumentException();
+        }
         Map<String, String> map = new HashMap<>();
         for (String part : query.split("&")) {
             int idx = part.indexOf('=');
-            if (idx <= 0) continue;
+            if (idx <= 0) {
+                continue;
+            }
             String key = urlDecode(part.substring(0, idx));
             String val = urlDecode(part.substring(idx + 1));
             map.put(key, val);
@@ -121,12 +125,16 @@ public class TelegramInitDataValidator {
     }
 
     private static byte[] hexToBytes(String hex) {
-        if (hex.length() % 2 != 0) throw new IllegalArgumentException();
+        if (hex.length() % 2 != 0) {
+            throw new IllegalArgumentException();
+        }
         byte[] out = new byte[hex.length() / 2];
         for (int i = 0; i < out.length; i++) {
             int hi = Character.digit(hex.charAt(i * 2), 16);
             int lo = Character.digit(hex.charAt(i * 2 + 1), 16);
-            if (hi < 0 || lo < 0) throw new IllegalArgumentException();
+            if (hi < 0 || lo < 0) {
+                throw new IllegalArgumentException();
+            }
             out[i] = (byte) ((hi << 4) + lo);
         }
         return out;

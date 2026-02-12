@@ -39,7 +39,7 @@ public class UsernameInputProcessor implements RegistrationStepProcessor {
                     "Username не может быть пустым. Напиши ещё раз.");
             return;
         }
-        var updated = userService.updateUsernameAndComplete(user.getTgId(), candidate);
+        User updated = userService.updateUsernameAndComplete(user.getTgId(), candidate);
         botClient.sendMessage(message.chatId(),
                 "Готово ✅ Новый username: " + updated.getUsername() +
                         "\n\nТеперь открой Mini App в меню бота.");

@@ -18,9 +18,11 @@ public class TelegramWebhookRegistrar {
     @EventListener(ApplicationReadyEvent.class)
     public void registerWebhook() {
         String url = props.getWebhookUrl();
-        if (url == null || url.isBlank()) return;
+        if (url == null || url.isBlank()) {
+            return;
+        }
 
-        var form = new LinkedMultiValueMap<String, String>();
+        LinkedMultiValueMap form = new LinkedMultiValueMap<String, String>();
         form.add("url", url);
 
         String secret = props.getWebhookSecret();

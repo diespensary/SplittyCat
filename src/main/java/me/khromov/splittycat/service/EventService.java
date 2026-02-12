@@ -51,7 +51,6 @@ public class EventService {
         event.setInviteCode(inviteCode);
         event = eventRepository.save(event);
 
-        // создаём участника‑владельца
         Participant participant = new Participant();
         participant.setEvent(event);
         participant.setName(ownerUser.getUsername());
