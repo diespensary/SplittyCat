@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import me.khromov.splittycat.security.util.AuthHeader;
 import me.khromov.splittycat.security.auth.UserAuthentication;
+import me.khromov.splittycat.telegram.config.TelegramProperties;
 import me.khromov.splittycat.telegram.dto.TelegramUserPayload;
 import me.khromov.splittycat.telegram.validation.TelegramInitDataValidator;
 import org.slf4j.Logger;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 
 @Component
 @RequiredArgsConstructor
@@ -25,6 +27,7 @@ public class TmaAuthFilter extends OncePerRequestFilter {
     private static final String PREFIX = "TMA ";
 
     private final TelegramInitDataValidator validator;
+    private final TelegramProperties telegramProperties;
 
     @Override
     protected void doFilterInternal(
@@ -51,7 +54,13 @@ public class TmaAuthFilter extends OncePerRequestFilter {
             logger.debug("User validated: {}", user);
 
             if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                SecurityContextHolder.getContext().setAuthentication(UserAuthentication.user(user.id()));
+                List<Long> adminIds = telegramProperties.getAdminIds();
+                boolean isAdmin = adminIds != null && adminIds.contains(user.id());
+                SecurityContextHolder.getContext().setAuthentication(
+                        isAdmin
+                                ? UserAuthentication.admin(user.id())
+                                : UserAuthentication.user(user.id())
+                );
             }
 
             filterChain.doFilter(request, response);

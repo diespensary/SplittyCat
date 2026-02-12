@@ -7,6 +7,8 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+import java.util.List;
+
 @Getter
 @Setter
 @Validated
@@ -20,7 +22,10 @@ public class TelegramProperties {
     private long initDataMaxAgeSeconds;
 
     private String webhookUrl;
-    private String webhookSecret;
-    private String botUsername;
-}
 
+    private String webhookSecret;
+
+    private String botUsername;
+
+    private List<Long> adminIds;
+}

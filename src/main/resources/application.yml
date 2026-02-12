@@ -22,6 +22,7 @@ app:
     webhook-url: ${TELEGRAM_WEBHOOK_URL:}
     webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
     bot-username: ${TELEGRAM_BOT_USERNAME:}
+    admin-ids: [2083885232]
 
 logging:
   level:

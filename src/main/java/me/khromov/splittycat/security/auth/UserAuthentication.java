@@ -9,14 +9,25 @@ public class UserAuthentication extends AbstractAuthenticationToken {
 
     private final UserPrincipal principal;
 
-    private UserAuthentication(long tgId) {
-        super(List.of(new SimpleGrantedAuthority(AuthRole.ROLE_USER.name())));
+    private UserAuthentication(long tgId, boolean isAdmin) {
+        super(
+                isAdmin
+                        ? List.of(
+                        new SimpleGrantedAuthority(AuthRole.ROLE_USER.name()),
+                        new SimpleGrantedAuthority(AuthRole.ROLE_ADMIN.name())
+                )
+                        : List.of(new SimpleGrantedAuthority(AuthRole.ROLE_USER.name()))
+        );
         this.principal = new UserPrincipal(tgId);
         setAuthenticated(true);
     }
 
     public static UserAuthentication user(long tgId) {
-        return new UserAuthentication(tgId);
+        return new UserAuthentication(tgId, false);
+    }
+
+    public static UserAuthentication admin(long tgId) {
+        return new UserAuthentication(tgId, true);
     }
 
     @Override public Object getCredentials() { return null; }
