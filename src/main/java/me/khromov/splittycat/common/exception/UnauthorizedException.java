@@ -1,0 +1,8 @@
+package me.khromov.splittycat.common.exception;
+
+public class UnauthorizedException extends ApplicationException {
+
+    public UnauthorizedException(String message) {
+        super(message);
+    }
+}

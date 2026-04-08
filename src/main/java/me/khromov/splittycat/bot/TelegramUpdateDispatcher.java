@@ -1,8 +1,9 @@
 package me.khromov.splittycat.bot;
 
 import lombok.RequiredArgsConstructor;
-import me.khromov.splittycat.bot.command.BotCommandRegistry;
 import me.khromov.splittycat.bot.dto.BotMessage;
+import me.khromov.splittycat.bot.router.BotCallbackRouter;
+import me.khromov.splittycat.bot.router.BotTextRouter;
 import me.khromov.splittycat.telegram.dto.TelegramCallbackQueryPayload;
 import me.khromov.splittycat.telegram.dto.TelegramMessagePayload;
 import me.khromov.splittycat.telegram.dto.TelegramUpdatePayload;
@@ -12,36 +13,19 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class TelegramUpdateDispatcher {
 
-    private final StartCommandHandler startCommandHandler;
-    private final BotCommandRegistry commandRegistry;
+    private final BotTextRouter textRouter;
+    private final BotCallbackRouter callbackRouter;
 
     public void dispatch(TelegramUpdatePayload update) {
-        BotMessage msg = normalize(update);
-        if (msg == null) {
+        BotMessage message = normalize(update);
+        if (message == null) {
             return;
         }
-
-        if (msg.callbackData() != null && !msg.callbackData().isBlank()) {
-            startCommandHandler.onCallback(msg);
+        if (message.callbackData() != null) {
+            callbackRouter.route(message);
             return;
         }
-
-        String text = msg.text();
-        if (text == null || text.isBlank()) {
-            return;
-        }
-
-        if (text.startsWith("/")) {
-            String[] parts = text.split("\\s+", 2);
-            String command = parts[0];
-            var handler = commandRegistry.getHandler(command);
-            if (handler != null) {
-                handler.handle(msg);
-                return;
-            }
-        }
-
-        startCommandHandler.onText(msg);
+        textRouter.route(message);
     }
 
     private static BotMessage normalize(TelegramUpdatePayload update) {
@@ -49,28 +33,29 @@ public class TelegramUpdateDispatcher {
             return null;
         }
 
-        TelegramMessagePayload m = update.message();
-        if (m != null && m.from() != null && m.chat() != null) {
+        TelegramMessagePayload message = update.message();
+        if (message != null && message.from() != null && message.chat() != null) {
             return new BotMessage(
-                    m.from().id(),
-                    m.chat().id(),
-                    m.from().username(),
-                    m.text(),
+                    message.from().id(),
+                    message.chat().id(),
+                    message.from().username(),
+                    message.text(),
                     null,
                     null
             );
         }
 
-        TelegramCallbackQueryPayload cq = update.callbackQuery();
-        if (cq != null && cq.from() != null && cq.message() != null && cq.message().chat() != null) {
-            var cm = cq.message();
+        TelegramCallbackQueryPayload callbackQuery = update.callbackQuery();
+        if (callbackQuery != null && callbackQuery.from() != null
+                && callbackQuery.message() != null && callbackQuery.message().chat() != null) {
+            TelegramMessagePayload callbackMessage = callbackQuery.message();
             return new BotMessage(
-                    cq.from().id(),
-                    cm.chat().id(),
-                    cq.from().username(),
-                    cm.text(),
-                    cq.data(),
-                    cq.id()
+                    callbackQuery.from().id(),
+                    callbackMessage.chat().id(),
+                    callbackQuery.from().username(),
+                    callbackMessage.text(),
+                    callbackQuery.data(),
+                    callbackQuery.id()
             );
         }
 

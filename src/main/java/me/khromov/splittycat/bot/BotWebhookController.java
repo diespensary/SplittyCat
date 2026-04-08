@@ -1,11 +1,14 @@
 package me.khromov.splittycat.bot;
 
 import lombok.RequiredArgsConstructor;
+import me.khromov.splittycat.common.exception.UnauthorizedException;
 import me.khromov.splittycat.telegram.config.TelegramProperties;
 import me.khromov.splittycat.telegram.dto.TelegramUpdatePayload;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/bot")
@@ -24,7 +27,7 @@ public class BotWebhookController {
     ) {
         String expected = props.getWebhookSecret();
         if (expected != null && !expected.isBlank() && !expected.equals(secret)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+            throw new UnauthorizedException("Неверный webhook secret");
         }
         dispatcher.dispatch(update);
     }

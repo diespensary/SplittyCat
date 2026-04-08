@@ -1,126 +1,112 @@
 package me.khromov.splittycat.service;
 
-import jakarta.transaction.Transactional;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import me.khromov.splittycat.common.exception.ConflictException;
+import me.khromov.splittycat.common.util.InputNormalizer;
 import me.khromov.splittycat.domain.entity.Event;
 import me.khromov.splittycat.domain.entity.Participant;
 import me.khromov.splittycat.domain.entity.User;
-import me.khromov.splittycat.domain.repository.EventRepository;
 import me.khromov.splittycat.domain.repository.ParticipantRepository;
+import me.khromov.splittycat.service.access.EventAccessPolicy;
+import me.khromov.splittycat.service.access.EventQueryService;
+import me.khromov.splittycat.service.dto.ClaimParticipantCommand;
+import me.khromov.splittycat.service.dto.CreateParticipantCommand;
+import me.khromov.splittycat.service.policy.ParticipantDeletionPolicy;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
 
 @Service
+@Validated
 @RequiredArgsConstructor
 public class ParticipantService {
 
     private final ParticipantRepository participantRepository;
-    private final EventRepository eventRepository;
+    private final EventQueryService eventQueryService;
+    private final EventAccessPolicy eventAccessPolicy;
+    private final ParticipantDeletionPolicy participantDeletionPolicy;
 
-    @Transactional
     public List<Participant> getParticipants(Long eventId, User user) {
-        Event event = requireAccess(eventId, user);
-        return participantRepository.findByEventId(event.getId());
+        return participantRepository.findByEventId(requireAccessibleEvent(eventId, user).getId());
+    }
+
+    public List<Participant> getUnlinkedParticipants(Long eventId, User user) {
+        return participantRepository.findUnlinkedByEventId(requireAccessibleEvent(eventId, user).getId());
     }
 
     @Transactional
-    public Participant addParticipant(Long eventId, String name, User user) {
-        if (name == null || name.trim().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Имя не может быть пустым");
-        }
-        Event event = requireAccess(eventId, user);
-        String normalized = normalizeName(name);
-        if (participantRepository.existsByEventIdAndNormalizedName(eventId, normalized)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Участник с таким именем уже существует");
-        }
-        Participant p = new Participant();
-        p.setEvent(event);
-        p.setName(name.trim());
-        p.setNormalizedName(normalized);
-        p.setCreatedByUser(user);
-        return participantRepository.save(p);
+    public Participant addParticipant(Long eventId, @Valid CreateParticipantCommand command, User user) {
+        Event event = requireAccessibleEvent(eventId, user);
+        ensureUniqueParticipantName(event.getId(), command.name());
+        return participantRepository.save(createFreeParticipant(event, command.name(), user));
     }
 
     @Transactional
     public void deleteParticipant(Long eventId, Long participantId, User user) {
-        Event event = requireAccess(eventId, user);
-        Participant p = participantRepository.findByIdAndEventId(participantId, event.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Участник не найден"));
-        boolean owner = event.getOwnerUser().getId().equals(user.getId());
-        boolean creator = p.getCreatedByUser() != null && p.getCreatedByUser().getId().equals(user.getId());
-        boolean deletingOwnOwnerSlot = owner && p.getLinkedUser() != null && p.getLinkedUser().getId().equals(user.getId());
-        if (deletingOwnOwnerSlot) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Владелец события не может удалить свой слот участника");
-        }
-        if (!owner && !creator) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Вы можете удалить только созданного вами участника");
-        }
+        Event event = requireAccessibleEvent(eventId, user);
+        Participant participant = eventQueryService.requireParticipant(event, participantId, "Участник не найден");
+
+        participantDeletionPolicy.validate(event, participant, user);
+
         try {
-            participantRepository.delete(p);
-        } catch (DataIntegrityViolationException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Нельзя удалить участника, который участвует в тратах");
+            participantRepository.delete(participant);
+        } catch (DataIntegrityViolationException exception) {
+            throw new ConflictException("Нельзя удалить участника, который участвует в тратах");
         }
     }
 
     @Transactional
-    public List<Participant> getUnlinkedParticipants(Long eventId, User user) {
-        Event event = requireAccess(eventId, user);
-        return participantRepository.findUnlinkedByEventId(event.getId());
-    }
+    public Participant claimParticipant(@Valid ClaimParticipantCommand command, User user) {
+        Event event = eventQueryService.requireByInviteCode(command.inviteCode());
+        ensureUserNotJoinedYet(event, user);
 
-    @Transactional
-    public Participant claimParticipant(String inviteCode, Long participantId, String participantName, User user) {
-        Event event = eventRepository.findByInviteCode(inviteCode)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Событие не найдено"));
-        boolean alreadyLinked = participantRepository.findByEventAndLinkedUser(event, user).isPresent();
-        if (alreadyLinked) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Пользователь уже присоединился к этому событию");
-        }
-        Participant participant;
-        if (participantId != null) {
-            participant = participantRepository.findByIdAndEventId(participantId, event.getId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Участник не найден"));
-            if (participant.getLinkedUser() != null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Участник уже присоединился");
-            }
-        } else {
-            if (participantName == null || participantName.trim().isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Имя участника не может быть пустым");
-            }
-            String normalized = normalizeName(participantName);
-            if (participantRepository.existsByEventIdAndNormalizedName(event.getId(), normalized)) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Участник с таким именем уже существует");
-            }
-            participant = new Participant();
-            participant.setEvent(event);
-            participant.setName(participantName.trim());
-            participant.setNormalizedName(normalized);
-            participant.setCreatedByUser(user);
-        }
-        participant.setLinkedUser(user);
+        Participant participant = command.claimsExistingParticipant()
+                ? claimExistingParticipant(event, command.participantId())
+                : createParticipantForClaim(event, command.participantName(), user);
+
+        participant.linkTo(user);
         return participantRepository.save(participant);
     }
 
-    private Event requireAccess(Long eventId, User user) {
-        Event event = eventRepository.findById(eventId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Событие не найдено"));
-        boolean owner = event.getOwnerUser().getId().equals(user.getId());
-        boolean linked = participantRepository.findByEventAndLinkedUser(event, user).isPresent();
-        if (!owner && !linked) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Не участник этого события");
-        }
-        return event;
+    private Event requireAccessibleEvent(Long eventId, User user) {
+        return eventAccessPolicy.requireAccessible(eventQueryService.requireById(eventId), user);
     }
 
-    private static String normalizeName(String s) {
-        if (s == null) {
-            return "";
+    private Participant createFreeParticipant(Event event, String participantName, User user) {
+        return Participant.freeSlot(
+                event,
+                user,
+                participantName,
+                InputNormalizer.lowercase(participantName)
+        );
+    }
+
+    private Participant claimExistingParticipant(Event event, Long participantId) {
+        Participant participant = eventQueryService.requireParticipant(event, participantId, "Участник не найден");
+        if (participant.isLinked()) {
+            throw new ConflictException("Участник уже присоединился");
         }
-        return s.trim().toLowerCase();
+        return participant;
+    }
+
+    private Participant createParticipantForClaim(Event event, String participantName, User user) {
+        ensureUniqueParticipantName(event.getId(), participantName);
+        return createFreeParticipant(event, participantName, user);
+    }
+
+    private void ensureUserNotJoinedYet(Event event, User user) {
+        if (eventQueryService.findLinkedParticipant(event, user).isPresent()) {
+            throw new ConflictException("Пользователь уже присоединился к этому событию");
+        }
+    }
+
+    private void ensureUniqueParticipantName(Long eventId, String name) {
+        if (participantRepository.existsByEventIdAndNormalizedName(eventId, InputNormalizer.lowercase(name))) {
+            throw new ConflictException("Участник с таким именем уже существует");
+        }
     }
 }

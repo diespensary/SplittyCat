@@ -1,92 +1,118 @@
 package me.khromov.splittycat.service;
 
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import me.khromov.splittycat.domain.entity.Event;
 import me.khromov.splittycat.domain.entity.Expense;
 import me.khromov.splittycat.domain.entity.Participant;
 import me.khromov.splittycat.domain.entity.ParticipantShare;
 import me.khromov.splittycat.domain.entity.User;
-import me.khromov.splittycat.domain.repository.EventRepository;
 import me.khromov.splittycat.domain.repository.ExpenseRepository;
-import me.khromov.splittycat.domain.repository.ParticipantRepository;
 import me.khromov.splittycat.domain.repository.ParticipantShareRepository;
+import me.khromov.splittycat.service.access.EventAccessPolicy;
+import me.khromov.splittycat.service.access.EventQueryService;
 import me.khromov.splittycat.service.dto.BalanceEntry;
 import me.khromov.splittycat.service.dto.MyBalance;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class BalanceService {
 
-    private final EventRepository eventRepository;
-    private final ParticipantRepository participantRepository;
     private final ExpenseRepository expenseRepository;
     private final ParticipantShareRepository shareRepository;
+    private final EventQueryService eventQueryService;
+    private final EventAccessPolicy eventAccessPolicy;
 
-    private record Key(Long participantId, String currencyCode) {}
-
-    @Transactional
     public MyBalance getMyBalance(Long eventId, User user) {
-        Event event = eventRepository.findById(eventId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Событие не найдено"));
+        Event event = eventAccessPolicy.requireAccessible(eventQueryService.requireById(eventId), user);
+        Participant currentParticipant = eventAccessPolicy.requireLinkedParticipant(event, user);
+        List<Expense> expenses = expenseRepository.findByEventId(eventId);
 
-        Participant me = participantRepository.findByEventAndLinkedUser(event, user)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Не участник этого события"));
+        if (expenses.isEmpty()) {
+            return new MyBalance(currentParticipant.getId(), Collections.emptyList(), Collections.emptyList());
+        }
 
-        Long myId = me.getId();
+        return new BalanceAccumulator(currentParticipant.getId(), loadSharesByExpenseId(expenses))
+                .accumulate(expenses)
+                .toBalance();
+    }
 
-        Map<Key, BigDecimal> youOwe = new HashMap<>();
-        Map<Key, BigDecimal> oweYou = new HashMap<>();
-        Map<Long, String> participantNameById = new HashMap<>();
+    private Map<Long, List<ParticipantShare>> loadSharesByExpenseId(List<Expense> expenses) {
+        List<Long> expenseIds = expenses.stream().map(Expense::getId).toList();
+        return shareRepository.findByExpenseIdIn(expenseIds).stream()
+                .collect(Collectors.groupingBy(share -> share.getExpense().getId()));
+    }
 
-        List<Expense> expenses = expenseRepository.findByEventId(event.getId());
-        for (Expense expense : expenses) {
+    private record BalanceKey(Long participantId, String currencyCode) {
+    }
+
+    private static final class BalanceAccumulator {
+
+        private final Long myParticipantId;
+        private final Map<Long, List<ParticipantShare>> sharesByExpenseId;
+        private final Map<BalanceKey, BigDecimal> youOwe = new HashMap<>();
+        private final Map<BalanceKey, BigDecimal> oweYou = new HashMap<>();
+        private final Map<Long, String> participantNames = new HashMap<>();
+
+        private BalanceAccumulator(Long myParticipantId, Map<Long, List<ParticipantShare>> sharesByExpenseId) {
+            this.myParticipantId = myParticipantId;
+            this.sharesByExpenseId = sharesByExpenseId;
+        }
+
+        private BalanceAccumulator accumulate(List<Expense> expenses) {
+            expenses.forEach(this::accumulateExpense);
+            return this;
+        }
+
+        private void accumulateExpense(Expense expense) {
             Participant payer = expense.getPayerParticipant();
             Long payerId = payer.getId();
-            String currency = expense.getCurrency().getCode();
+            String currencyCode = expense.getCurrency().getCode();
+            rememberParticipant(payer);
 
-            participantNameById.putIfAbsent(payerId, payer.getName());
+            for (ParticipantShare share : sharesByExpenseId.getOrDefault(expense.getId(), Collections.emptyList())) {
+                Participant participant = share.getParticipant();
+                Long participantId = participant.getId();
+                rememberParticipant(participant);
 
-            List<ParticipantShare> shares = shareRepository.findByExpenseId(expense.getId());
-            for (ParticipantShare share : shares) {
-                Participant other = share.getParticipant();
-                Long otherId = other.getId();
-                BigDecimal amount = share.getAmount();
-
-                participantNameById.putIfAbsent(otherId, other.getName());
-
-                if (otherId.equals(myId) && !payerId.equals(myId)) {
-                    youOwe.merge(new Key(payerId, currency), amount, BigDecimal::add);
-                } else if (payerId.equals(myId) && !otherId.equals(myId)) {
-                    oweYou.merge(new Key(otherId, currency), amount, BigDecimal::add);
+                if (participantId.equals(myParticipantId) && !payerId.equals(myParticipantId)) {
+                    youOwe.merge(new BalanceKey(payerId, currencyCode), share.getAmount(), BigDecimal::add);
+                    continue;
+                }
+                if (payerId.equals(myParticipantId) && !participantId.equals(myParticipantId)) {
+                    oweYou.merge(new BalanceKey(participantId, currencyCode), share.getAmount(), BigDecimal::add);
                 }
             }
         }
 
-        List<BalanceEntry> youOweList = toEntries(youOwe, participantNameById);
-        List<BalanceEntry> oweYouList = toEntries(oweYou, participantNameById);
+        private void rememberParticipant(Participant participant) {
+            participantNames.putIfAbsent(participant.getId(), participant.getName());
+        }
 
-        return new MyBalance(myId, youOweList, oweYouList);
-    }
+        private MyBalance toBalance() {
+            return new MyBalance(myParticipantId, toEntries(youOwe), toEntries(oweYou));
+        }
 
-    private static List<BalanceEntry> toEntries(Map<Key, BigDecimal> map, Map<Long, String> nameById) {
-        return map.entrySet().stream()
-                .map(e -> new BalanceEntry(
-                        e.getKey().participantId(),
-                        nameById.getOrDefault(e.getKey().participantId(), "Неизвестен"),
-                        e.getKey().currencyCode(),
-                        e.getValue()
-                ))
-                .sorted(Comparator
-                        .comparing(BalanceEntry::participantName, Comparator.nullsLast(String::compareToIgnoreCase))
-                        .thenComparing(BalanceEntry::currencyCode))
-                .collect(Collectors.toList());
+        private List<BalanceEntry> toEntries(Map<BalanceKey, BigDecimal> balances) {
+            return balances.entrySet().stream()
+                    .map(entry -> new BalanceEntry(
+                            entry.getKey().participantId(),
+                            participantNames.getOrDefault(entry.getKey().participantId(), "Неизвестен"),
+                            entry.getKey().currencyCode(),
+                            entry.getValue()
+                    ))
+                    .sorted(Comparator
+                            .comparing(BalanceEntry::participantName, Comparator.nullsLast(String::compareToIgnoreCase))
+                            .thenComparing(BalanceEntry::currencyCode))
+                    .toList();
+        }
     }
 }

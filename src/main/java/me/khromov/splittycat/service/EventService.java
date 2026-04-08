@@ -1,121 +1,104 @@
 package me.khromov.splittycat.service;
 
-import jakarta.transaction.Transactional;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import me.khromov.splittycat.common.exception.ConflictException;
+import me.khromov.splittycat.common.exception.ForbiddenException;
+import me.khromov.splittycat.common.exception.UnprocessableEntityException;
+import me.khromov.splittycat.common.util.InputNormalizer;
 import me.khromov.splittycat.domain.entity.Event;
 import me.khromov.splittycat.domain.entity.Participant;
 import me.khromov.splittycat.domain.entity.User;
 import me.khromov.splittycat.domain.repository.EventRepository;
 import me.khromov.splittycat.domain.repository.ParticipantRepository;
+import me.khromov.splittycat.service.access.EventAccessPolicy;
+import me.khromov.splittycat.service.access.EventQueryService;
+import me.khromov.splittycat.service.dto.CreateEventCommand;
+import me.khromov.splittycat.service.dto.JoinEventCommand;
+import me.khromov.splittycat.service.dto.JoinPreview;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 
 import java.security.SecureRandom;
 import java.util.List;
 
 @Service
+@Validated
 @RequiredArgsConstructor
 public class EventService {
 
     private static final String INVITE_CHARACTERS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
     private static final int INVITE_LENGTH = 6;
+    private static final int MAX_CODE_GENERATION_ATTEMPTS = 10;
 
     private final EventRepository eventRepository;
     private final ParticipantRepository participantRepository;
-
+    private final EventQueryService eventQueryService;
+    private final EventAccessPolicy eventAccessPolicy;
     private final SecureRandom random = new SecureRandom();
 
     @Transactional
-    public Event createEvent(String title, User ownerUser) {
-        if (title == null || title.trim().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Название не может быть пустым");
-        }
-
-        String inviteCode = null;
-        for (int i = 0; i < 5; i++) {
-            String code = generateInviteCode();
-            if (eventRepository.findByInviteCode(code).isEmpty()) {
-                inviteCode = code;
-                break;
+    public Event createEvent(@Valid CreateEventCommand command, User ownerUser) {
+        for (int attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt++) {
+            try {
+                Event event = eventRepository.saveAndFlush(Event.create(command.title(), ownerUser, generateInviteCode()));
+                participantRepository.save(createOwnerParticipant(event, ownerUser));
+                return event;
+            } catch (DataIntegrityViolationException exception) {
+                if (attempt == MAX_CODE_GENERATION_ATTEMPTS - 1) {
+                    throw new UnprocessableEntityException("Невозможно сгенерировать уникальный код приглашения");
+                }
             }
         }
-        if (inviteCode == null) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Невозможно сгенерировать уникальный код приглашения");
-        }
-        Event event = new Event();
-        event.setTitle(title.trim());
-        event.setOwnerUser(ownerUser);
-        event.setInviteCode(inviteCode);
-        event = eventRepository.save(event);
-
-        Participant participant = new Participant();
-        participant.setEvent(event);
-        participant.setName(ownerUser.getUsername());
-        participant.setNormalizedName(normalizeName(ownerUser.getUsername()));
-        participant.setLinkedUser(ownerUser);
-        participant.setCreatedByUser(ownerUser);
-        participantRepository.save(participant);
-
-        return event;
-    }
-
-    @Transactional
-    public List<Event> getEventsForUser(User user) {
-        return eventRepository.findEventsForUser(user.getId());
-    }
-
-    @Transactional
-    public Event findByInviteCode(String inviteCode) {
-        if (inviteCode == null || inviteCode.isBlank()) {
-            return null;
-        }
-        return eventRepository.findByInviteCode(inviteCode.trim()).orElse(null);
-    }
-
-    @Transactional
-    public Event requireEventAccessible(Long eventId, User user) {
-        Event event = eventRepository.findById(eventId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Событие не найдено"));
-        boolean owner = event.getOwnerUser().getId().equals(user.getId());
-        boolean participant = participantRepository.findByEventAndLinkedUser(event, user).isPresent();
-        if (!owner && !participant) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Не участник этого события");
-        }
-        return event;
+        throw new UnprocessableEntityException("Невозможно сгенерировать уникальный код приглашения");
     }
 
     @Transactional
     public void deleteEvent(Long eventId, User user) {
-        Event event = eventRepository.findById(eventId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Событие не найдено"));
-        if (!event.getOwnerUser().getId().equals(user.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Удалить событие может только владелец");
+        Event event = eventQueryService.requireById(eventId);
+        if (!eventAccessPolicy.isOwner(event, user)) {
+            throw new ForbiddenException("Удалить событие может только владелец");
         }
+
         try {
             eventRepository.delete(event);
-            eventRepository.flush();
-        } catch (DataIntegrityViolationException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Нельзя удалить событие, пока в нём есть траты");
+        } catch (DataIntegrityViolationException exception) {
+            throw new ConflictException("Нельзя удалить событие, пока в нём есть траты");
         }
     }
 
-    private static String normalizeName(String s) {
-        if (s == null) {
-            return "";
-        }
-        return s.trim().toLowerCase();
+    public List<Event> getEventsForUser(User user) {
+        return eventRepository.findEventsForUser(user.getId());
+    }
+
+    public Event requireEventAccessible(Long eventId, User user) {
+        return eventAccessPolicy.requireAccessible(eventQueryService.requireById(eventId), user);
+    }
+
+    public JoinPreview getJoinPreview(@Valid JoinEventCommand command, User user) {
+        Event event = eventQueryService.requireByInviteCode(command.inviteCode());
+        return eventQueryService.findLinkedParticipant(event, user)
+                .map(linkedParticipant -> JoinPreview.alreadyJoined(event, linkedParticipant))
+                .orElseGet(() -> JoinPreview.available(event, participantRepository.findUnlinkedByEventId(event.getId())));
+    }
+
+    private Participant createOwnerParticipant(Event event, User ownerUser) {
+        return Participant.ownerSlot(
+                event,
+                ownerUser,
+                ownerUser.getUsername(),
+                InputNormalizer.lowercase(ownerUser.getUsername())
+        );
     }
 
     private String generateInviteCode() {
-        StringBuilder sb = new StringBuilder(INVITE_LENGTH);
-        for (int i = 0; i < INVITE_LENGTH; i++) {
-            int idx = random.nextInt(INVITE_CHARACTERS.length());
-            sb.append(INVITE_CHARACTERS.charAt(idx));
+        StringBuilder code = new StringBuilder(INVITE_LENGTH);
+        for (int index = 0; index < INVITE_LENGTH; index++) {
+            int randomIndex = random.nextInt(INVITE_CHARACTERS.length());
+            code.append(INVITE_CHARACTERS.charAt(randomIndex));
         }
-        return sb.toString();
+        return code.toString();
     }
 }

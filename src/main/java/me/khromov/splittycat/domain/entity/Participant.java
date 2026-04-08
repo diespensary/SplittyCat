@@ -1,18 +1,26 @@
 package me.khromov.splittycat.domain.entity;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 import java.time.OffsetDateTime;
 
 @Entity
 @Table(name = "participants")
 @Getter
-@Setter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Participant {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
@@ -38,4 +46,35 @@ public class Participant {
 
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private OffsetDateTime createdAt;
+
+    public static Participant ownerSlot(Event event, User ownerUser, String name, String normalizedName) {
+        Participant participant = freeSlot(event, ownerUser, name, normalizedName);
+        participant.linkTo(ownerUser);
+        return participant;
+    }
+
+    public static Participant freeSlot(Event event, User createdByUser, String name, String normalizedName) {
+        Participant participant = new Participant();
+        participant.event = event;
+        participant.name = name;
+        participant.normalizedName = normalizedName;
+        participant.createdByUser = createdByUser;
+        return participant;
+    }
+
+    public void linkTo(User user) {
+        linkedUser = user;
+    }
+
+    public boolean isLinked() {
+        return linkedUser != null;
+    }
+
+    public boolean isLinkedTo(User user) {
+        return linkedUser != null && user != null && linkedUser.hasId(user.getId());
+    }
+
+    public boolean isCreatedBy(User user) {
+        return createdByUser != null && user != null && createdByUser.hasId(user.getId());
+    }
 }

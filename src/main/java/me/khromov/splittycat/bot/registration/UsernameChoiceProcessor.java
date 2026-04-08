@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import me.khromov.splittycat.bot.dto.BotMessage;
 import me.khromov.splittycat.domain.entity.RegistrationStep;
 import me.khromov.splittycat.domain.entity.User;
-import me.khromov.splittycat.service.UserService;
+import me.khromov.splittycat.service.UserRegistrationService;
 import me.khromov.splittycat.telegram.client.TelegramBotClient;
 import me.khromov.splittycat.telegram.dto.TelegramInlineKeyboardButton;
 import me.khromov.splittycat.telegram.dto.TelegramInlineKeyboardMarkup;
@@ -17,7 +17,7 @@ import java.util.List;
 public class UsernameChoiceProcessor implements RegistrationStepProcessor {
     private static final String KEEP = "start:keep";
     private static final String CHANGE = "start:change";
-    private final UserService userService;
+    private final UserRegistrationService userRegistrationService;
     private final TelegramBotClient botClient;
 
     @Override
@@ -39,12 +39,12 @@ public class UsernameChoiceProcessor implements RegistrationStepProcessor {
     @Override
     public void handleCallback(User user, BotMessage message, String data) {
         if (KEEP.equals(data)) {
-            userService.completeRegistration(user.getTgId());
+            userRegistrationService.completeRegistration(user.getTgId());
             botClient.sendMessage(message.chatId(),
                     "Ок ✅ Оставляем: " + user.getUsername() +
                             "\n\nТеперь открой Mini App в меню бота.");
         } else if (CHANGE.equals(data)) {
-            userService.proceedToNextStep(user.getTgId());
+            userRegistrationService.proceedToNextStep(user.getTgId());
             botClient.sendMessage(message.chatId(),
                     "Напиши новый username одним сообщением.");
         } else {

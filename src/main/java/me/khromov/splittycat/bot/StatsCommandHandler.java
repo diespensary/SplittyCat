@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import me.khromov.splittycat.bot.command.BotCommandHandler;
 import me.khromov.splittycat.bot.dto.BotMessage;
 import me.khromov.splittycat.domain.repository.UserRepository;
-import me.khromov.splittycat.service.UserService;
+import me.khromov.splittycat.service.UserAccountService;
 import me.khromov.splittycat.telegram.client.TelegramBotClient;
 import me.khromov.splittycat.telegram.config.TelegramProperties;
 import org.springframework.stereotype.Component;
@@ -15,7 +15,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class StatsCommandHandler implements BotCommandHandler {
 
-    private final UserService userService;
+    private final UserAccountService userAccountService;
     private final UserRepository userRepository;
     private final TelegramBotClient botClient;
     private final TelegramProperties telegramProperties;
@@ -27,7 +27,7 @@ public class StatsCommandHandler implements BotCommandHandler {
 
     @Override
     public void handle(BotMessage message) {
-        userService.requireOnboardedUser(message.tgId());
+        userAccountService.requireOnboardedUser(message.tgId());
 
         List<Long> adminIds = telegramProperties.getAdminIds();
         boolean isAdmin = adminIds != null && adminIds.contains(message.tgId());

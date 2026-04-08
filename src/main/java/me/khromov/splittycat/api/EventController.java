@@ -2,106 +2,80 @@ package me.khromov.splittycat.api;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import me.khromov.splittycat.api.dto.*;
-import me.khromov.splittycat.domain.entity.Event;
+import me.khromov.splittycat.api.dto.BalanceResponse;
+import me.khromov.splittycat.api.dto.EventDto;
+import me.khromov.splittycat.api.dto.JoinResponse;
+import me.khromov.splittycat.api.mapper.BalanceApiMapper;
+import me.khromov.splittycat.api.mapper.EventApiMapper;
 import me.khromov.splittycat.domain.entity.Participant;
 import me.khromov.splittycat.domain.entity.User;
-import me.khromov.splittycat.security.CurrentUser;
 import me.khromov.splittycat.service.BalanceService;
 import me.khromov.splittycat.service.EventService;
 import me.khromov.splittycat.service.ParticipantService;
-import me.khromov.splittycat.service.UserService;
-import me.khromov.splittycat.domain.repository.ParticipantRepository;
-import me.khromov.splittycat.service.dto.MyBalance;
+import me.khromov.splittycat.service.dto.ClaimParticipantCommand;
+import me.khromov.splittycat.service.dto.CreateEventCommand;
+import me.khromov.splittycat.service.dto.JoinEventCommand;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/events")
 @RequiredArgsConstructor
 public class EventController {
 
-    private final CurrentUser currentUser;
-    private final UserService userService;
+    private final ApiUserProvider apiUserProvider;
     private final EventService eventService;
     private final ParticipantService participantService;
     private final BalanceService balanceService;
-    private final ParticipantRepository participantRepository;
 
     @PostMapping
-    public EventDto createEvent(@Valid @RequestBody CreateEventRequest request) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        Event event = eventService.createEvent(request.title(), user);
-        return new EventDto(event.getId(), event.getTitle(), event.getInviteCode());
+    @ResponseStatus(HttpStatus.CREATED)
+    public EventDto createEvent(@Valid @RequestBody CreateEventCommand command) {
+        return EventApiMapper.toEventDto(eventService.createEvent(command, currentUser()));
     }
 
     @GetMapping
-    public List<EventDto> listEvents() {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        return eventService.getEventsForUser(user).stream()
-                .map(e -> new EventDto(e.getId(), e.getTitle(), e.getInviteCode()))
-                .collect(Collectors.toList());
+    public List<EventDto> listMyEvents() {
+        return EventApiMapper.toEventDtos(eventService.getEventsForUser(currentUser()));
     }
 
     @GetMapping("/{eventId}")
     public EventDto getEvent(@PathVariable Long eventId) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        Event event = eventService.requireEventAccessible(eventId, user);
-        return new EventDto(event.getId(), event.getTitle(), event.getInviteCode());
+        return EventApiMapper.toEventDto(eventService.requireEventAccessible(eventId, currentUser()));
     }
 
     @DeleteMapping("/{eventId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteEvent(@PathVariable Long eventId) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        eventService.deleteEvent(eventId, user);
+        eventService.deleteEvent(eventId, currentUser());
     }
 
     @PostMapping("/join")
-    public JoinResponse join(@Valid @RequestBody JoinRequestBody body) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        String inviteCode = body.inviteCode();
-        Event event = eventService.findByInviteCode(inviteCode);
-        if (event == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found");
-        }
-        Participant linked = participantRepository.findByEventAndLinkedUser(event, user).orElse(null);
-        boolean alreadyJoined = linked != null;
-        Long myParticipantId = alreadyJoined ? linked.getId() : null;
-        List<ParticipantDto> unlinked = alreadyJoined ? List.of() :
-                participantRepository.findUnlinkedByEventId(event.getId()).stream()
-                        .map(p -> new ParticipantDto(p.getId(), p.getName(), false))
-                        .toList();
-        return new JoinResponse(event.getId(), event.getTitle(), event.getInviteCode(),
-                alreadyJoined, myParticipantId, unlinked);
+    public JoinResponse join(@Valid @RequestBody JoinEventCommand command) {
+        return EventApiMapper.toJoinResponse(eventService.getJoinPreview(command, currentUser()));
     }
 
     @PostMapping("/join/claim")
-    public EventDto claim(@Valid @RequestBody ClaimRequestBody body) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        Participant p = participantService.claimParticipant(body.inviteCode(), body.participantId(), body.participantName(), user);
-        Event event = p.getEvent();
-        return new EventDto(event.getId(), event.getTitle(), event.getInviteCode());
+    public EventDto claim(@Valid @RequestBody ClaimParticipantCommand command) {
+        Participant participant = participantService.claimParticipant(command, currentUser());
+        return EventApiMapper.toEventDto(participant.getEvent());
     }
 
     @GetMapping("/{eventId}/my-balance")
     public BalanceResponse myBalance(@PathVariable Long eventId) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        MyBalance balance = balanceService.getMyBalance(eventId, user);
-
-        List<BalanceEntryDto> youOwe = balance.youOwe().stream()
-                .map(e -> new BalanceEntryDto(e.participantId(), e.participantName(), e.currencyCode(), e.amount()))
-                .toList();
-
-        List<BalanceEntryDto> oweYou = balance.oweYou().stream()
-                .map(e -> new BalanceEntryDto(e.participantId(), e.participantName(), e.currencyCode(), e.amount()))
-                .toList();
-
-        return new BalanceResponse(balance.myParticipantId(), youOwe, oweYou);
+        return BalanceApiMapper.toBalanceResponse(balanceService.getMyBalance(eventId, currentUser()));
     }
 
+    private User currentUser() {
+        return apiUserProvider.getCurrentOnboardedUser();
+    }
 }

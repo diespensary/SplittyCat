@@ -2,108 +2,58 @@ package me.khromov.splittycat.api;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import me.khromov.splittycat.api.dto.CreateExpenseRequest;
 import me.khromov.splittycat.api.dto.ExpenseDetailDto;
 import me.khromov.splittycat.api.dto.ExpenseSummaryDto;
-import me.khromov.splittycat.api.dto.ParticipantDto;
-import me.khromov.splittycat.api.dto.ShareDto;
-import me.khromov.splittycat.domain.entity.Expense;
-import me.khromov.splittycat.domain.entity.Participant;
-import me.khromov.splittycat.domain.entity.ParticipantShare;
+import me.khromov.splittycat.api.mapper.ExpenseApiMapper;
 import me.khromov.splittycat.domain.entity.User;
-import me.khromov.splittycat.domain.repository.ParticipantShareRepository;
-import me.khromov.splittycat.security.CurrentUser;
 import me.khromov.splittycat.service.ExpenseService;
-import me.khromov.splittycat.service.UserService;
+import me.khromov.splittycat.service.dto.CreateExpenseCommand;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.math.BigDecimal;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/events/{eventId}/expenses")
 @RequiredArgsConstructor
 public class ExpenseController {
 
-    private final CurrentUser currentUser;
-    private final UserService userService;
+    private final ApiUserProvider apiUserProvider;
     private final ExpenseService expenseService;
-    private final ParticipantShareRepository participantShareRepository;
 
     @GetMapping
     public List<ExpenseSummaryDto> listExpenses(@PathVariable Long eventId) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        List<Expense> expenses = expenseService.getExpenses(eventId, user);
-        return expenses.stream()
-                .map(e -> new ExpenseSummaryDto(
-                        e.getId(),
-                        e.getTitle(),
-                        e.getAmount(),
-                        e.getCurrency().getCode(),
-                        e.getExpenseDate(),
-                        e.getPayerParticipant().getName()))
-                .collect(Collectors.toList());
+        return ExpenseApiMapper.toExpenseSummaryDtos(expenseService.getExpenses(eventId, currentUser()));
     }
 
     @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
     public ExpenseSummaryDto createExpense(@PathVariable Long eventId,
-                                           @Valid @RequestBody CreateExpenseRequest request) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        List<ExpenseService.ShareInput> shares = request.shares().stream()
-                .map(share -> new ExpenseService.ShareInput(
-                        share.participantId(),
-                        share.amount(),
-                        share.description()))
-                .collect(Collectors.toList());
-        Expense expense = expenseService.createExpense(
-                eventId,
-                request.title(),
-                request.amount(),
-                request.currencyCode(),
-                request.expenseDate(),
-                request.payerParticipantId(),
-                shares,
-                user);
-        return new ExpenseSummaryDto(
-                expense.getId(),
-                expense.getTitle(),
-                expense.getAmount(),
-                expense.getCurrency().getCode(),
-                expense.getExpenseDate(),
-                expense.getPayerParticipant().getName());
+                                           @Valid @RequestBody CreateExpenseCommand command) {
+        return ExpenseApiMapper.toExpenseSummaryDto(expenseService.createExpense(eventId, command, currentUser()));
     }
 
     @GetMapping("/{expenseId}")
     public ExpenseDetailDto getExpense(@PathVariable Long eventId,
                                        @PathVariable Long expenseId) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        Expense expense = expenseService.getExpense(eventId, expenseId, user);
-        List<ParticipantShare> shares = participantShareRepository.findByExpenseId(expense.getId());
-        List<ShareDto> shareDtos = shares.stream()
-                .map(s -> new ShareDto(s.getParticipant().getId(), s.getAmount(), s.getDescription()))
-                .collect(Collectors.toList());
-        Participant payer = expense.getPayerParticipant();
-        ParticipantDto payerDto = new ParticipantDto(
-                payer.getId(), payer.getName(), payer.getLinkedUser() != null);
-        return new ExpenseDetailDto(
-                expense.getId(),
-                expense.getTitle(),
-                expense.getAmount(),
-                expense.getCurrency().getCode(),
-                expense.getExpenseDate(),
-                payerDto,
-                shareDtos);
+        return ExpenseApiMapper.toExpenseDetailDto(expenseService.getExpenseDetails(eventId, expenseId, currentUser()));
     }
 
     @DeleteMapping("/{expenseId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteExpense(@PathVariable Long eventId,
                               @PathVariable Long expenseId) {
-        User user = userService.requireOnboardedUser(currentUser.tgId());
-        expenseService.deleteExpense(eventId, expenseId, user);
+        expenseService.deleteExpense(eventId, expenseId, currentUser());
+    }
+
+    private User currentUser() {
+        return apiUserProvider.getCurrentOnboardedUser();
     }
 }

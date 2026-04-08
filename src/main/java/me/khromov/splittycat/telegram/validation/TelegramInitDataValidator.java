@@ -13,12 +13,10 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class TelegramInitDataValidator {
 
-    private static final Logger logger = LoggerFactory.getLogger(TelegramInitDataValidator.class);
+    private static final long AUTH_DATE_FUTURE_TOLERANCE_SECONDS = 600;
 
     private final ObjectMapper objectMapper;
     private final String botToken;
@@ -31,87 +29,91 @@ public class TelegramInitDataValidator {
     }
 
     public TelegramUserPayload validateAndExtractUser(String initData) {
-        logger.info("Starting to validate initData: {}", initData);
-
         Map<String, String> params = parseQuery(initData);
-        logger.debug("Parsed query parameters: {}", params);
+        long authDate = parseAuthDate(params);
+        validateFreshness(authDate);
+        validateHash(params);
+        return parseUser(params);
+    }
 
-        String hashHex = require(params, "hash").toLowerCase(Locale.ROOT);
-        long authDate = parseLong(require(params, "auth_date"));
-        long now = Instant.now().getEpochSecond();
-
-        // Логирование для времени
-        logger.debug("Current time: {} | authDate: {}", now, authDate);
-
-        long tolerance = 600; // 10 минут
-        if (now + tolerance < authDate || now - authDate > maxAgeSeconds) {
-            logger.error("Auth date validation failed: now={} authDate={} tolerance={}", now, authDate, tolerance);
-            throw new IllegalArgumentException("Auth date is invalid or too old.");
-        }
-
-        // Логирование для строки проверки
-        String dataCheckString = params.entrySet().stream()
-                .filter(e -> !"hash".equals(e.getKey()))
-                .sorted(Map.Entry.comparingByKey())
-                .map(e -> e.getKey() + "=" + e.getValue())
-                .collect(Collectors.joining("\n"));
-
-        logger.debug("Data check string: {}", dataCheckString);
-
-        byte[] secretKey = hmacSha256("WebAppData".getBytes(StandardCharsets.UTF_8),
-                botToken.getBytes(StandardCharsets.UTF_8));
-
-        byte[] expected = hmacSha256(secretKey, dataCheckString.getBytes(StandardCharsets.UTF_8));
-        byte[] provided = hexToBytes(hashHex);
-
-        if (!MessageDigest.isEqual(expected, provided)) {
-            logger.error("Hash mismatch: expected={} provided={}", expected, provided);
-            throw new IllegalArgumentException("Hash mismatch");
-        }
-
-        String userJson = require(params, "user");
+    private long parseAuthDate(Map<String, String> params) {
         try {
-            logger.debug("User JSON: {}", userJson);
-            return objectMapper.readValue(userJson, TelegramUserPayload.class);
-        } catch (Exception e) {
-            logger.error("Failed to parse user JSON", e);
-            throw new IllegalArgumentException("Failed to parse user data");
+            return Long.parseLong(require(params, "auth_date"));
+        } catch (NumberFormatException exception) {
+            throw new TelegramInitDataValidationException("Auth date is invalid", exception);
         }
+    }
+
+    private void validateFreshness(long authDate) {
+        long now = Instant.now().getEpochSecond();
+        if (now + AUTH_DATE_FUTURE_TOLERANCE_SECONDS < authDate || now - authDate > maxAgeSeconds) {
+            throw new TelegramInitDataValidationException("Auth date is invalid or too old");
+        }
+    }
+
+    private void validateHash(Map<String, String> params) {
+        String hashHex = require(params, "hash").toLowerCase(Locale.ROOT);
+        byte[] expectedHash = calculateExpectedHash(buildDataCheckString(params));
+        byte[] providedHash = hexToBytes(hashHex);
+
+        if (!MessageDigest.isEqual(expectedHash, providedHash)) {
+            throw new TelegramInitDataValidationException("Hash mismatch");
+        }
+    }
+
+    private byte[] calculateExpectedHash(String dataCheckString) {
+        byte[] secretKey = hmacSha256(
+                "WebAppData".getBytes(StandardCharsets.UTF_8),
+                botToken.getBytes(StandardCharsets.UTF_8)
+        );
+        return hmacSha256(secretKey, dataCheckString.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private TelegramUserPayload parseUser(Map<String, String> params) {
+        try {
+            return objectMapper.readValue(require(params, "user"), TelegramUserPayload.class);
+        } catch (Exception exception) {
+            throw new TelegramInitDataValidationException("Failed to parse user data", exception);
+        }
+    }
+
+    private static String buildDataCheckString(Map<String, String> params) {
+        return params.entrySet().stream()
+                .filter(entry -> !"hash".equals(entry.getKey()))
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .collect(Collectors.joining("\n"));
     }
 
     private static String require(Map<String, String> params, String key) {
-        String v = params.get(key);
-        if (v == null || v.isBlank()) throw new IllegalArgumentException();
-        return v;
-    }
-
-    private static long parseLong(String s) {
-        try {
-            return Long.parseLong(s);
-        } catch (Exception e) {
-            throw new IllegalArgumentException();
+        String value = params.get(key);
+        if (value == null || value.isBlank()) {
+            throw new TelegramInitDataValidationException("Missing required parameter: " + key);
         }
+        return value;
     }
 
     private static Map<String, String> parseQuery(String query) {
         if (query == null || query.isBlank()) {
-            throw new IllegalArgumentException();
+            throw new TelegramInitDataValidationException("Init data is empty");
         }
-        Map<String, String> map = new HashMap<>();
+
+        Map<String, String> params = new HashMap<>();
         for (String part : query.split("&")) {
-            int idx = part.indexOf('=');
-            if (idx <= 0) {
+            int separatorIndex = part.indexOf('=');
+            if (separatorIndex <= 0) {
                 continue;
             }
-            String key = urlDecode(part.substring(0, idx));
-            String val = urlDecode(part.substring(idx + 1));
-            map.put(key, val);
+
+            String key = urlDecode(part.substring(0, separatorIndex));
+            String value = urlDecode(part.substring(separatorIndex + 1));
+            params.put(key, value);
         }
-        return map;
+        return params;
     }
 
-    private static String urlDecode(String s) {
-        return URLDecoder.decode(s, StandardCharsets.UTF_8);
+    private static String urlDecode(String value) {
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
     private static byte[] hmacSha256(byte[] key, byte[] data) {
@@ -119,24 +121,25 @@ public class TelegramInitDataValidator {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
             return mac.doFinal(data);
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
         }
     }
 
     private static byte[] hexToBytes(String hex) {
         if (hex.length() % 2 != 0) {
-            throw new IllegalArgumentException();
+            throw new TelegramInitDataValidationException("Hash has invalid length");
         }
-        byte[] out = new byte[hex.length() / 2];
-        for (int i = 0; i < out.length; i++) {
-            int hi = Character.digit(hex.charAt(i * 2), 16);
-            int lo = Character.digit(hex.charAt(i * 2 + 1), 16);
-            if (hi < 0 || lo < 0) {
-                throw new IllegalArgumentException();
+
+        byte[] bytes = new byte[hex.length() / 2];
+        for (int index = 0; index < bytes.length; index++) {
+            int high = Character.digit(hex.charAt(index * 2), 16);
+            int low = Character.digit(hex.charAt(index * 2 + 1), 16);
+            if (high < 0 || low < 0) {
+                throw new TelegramInitDataValidationException("Hash contains invalid characters");
             }
-            out[i] = (byte) ((hi << 4) + lo);
+            bytes[index] = (byte) ((high << 4) + low);
         }
-        return out;
+        return bytes;
     }
 }
